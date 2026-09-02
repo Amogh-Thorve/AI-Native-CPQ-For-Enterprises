@@ -13,7 +13,7 @@ from backend.app.core.config import settings
 from backend.app.domains.auth.models import User, Role, Permission, UserRole, RolePermission, AuthenticationSession, RefreshToken, PasswordResetToken, EmailVerificationToken
 from backend.app.domains.customer.models import Customer, Contact, CustomerAddress
 from backend.app.domains.catalog.models import Category, Product, PriceBook, PriceBookEntry
-from backend.app.domains.pricing.models import PricingRule
+from backend.app.domains.pricing.models import PricingRule, ProductPricingTier, ProductPricingSetting
 from backend.app.domains.configuration.models import ConfigurationRule
 from backend.app.domains.quotes.models import Quote, QuoteLineItem
 from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest

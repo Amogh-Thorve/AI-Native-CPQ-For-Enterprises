@@ -56,6 +56,19 @@ DEFAULT_PERMISSIONS = [
     "catalog.export",
     "pricing.read",
     "pricing.manage",
+    # Granular pricing permissions
+    "pricing.calculate",
+    "pricing.config.view",
+    "pricing.config.create",
+    "pricing.config.update",
+    "pricing.config.deactivate",
+    "pricing.rule.create",
+    "pricing.rule.update",
+    "pricing.rule.delete",
+    "pricing.cost.view",
+    "pricing.margin.view",
+    "pricing.discount.approve",
+    "pricing.override",
     "quotes.read",
     "quotes.create",
     "quotes.update",
@@ -64,6 +77,8 @@ DEFAULT_PERMISSIONS = [
     "quotes.export",
     "approval.read",
     "approval.manage",
+    "configuration.configure",
+    "configuration.admin",
     "system.admin"
 ]
 
@@ -125,13 +140,18 @@ ROLE_PERMISSION_MAPPINGS = {
         "catalog.import",
         "catalog.export",
         "pricing.read",
+        "pricing.calculate",
+        "pricing.config.view",
+        "pricing.margin.view",
+        "pricing.discount.approve",
         "quotes.read",
         "quotes.create",
         "quotes.update",
         "quotes.approve",
         "quotes.export",
         "approval.read",
-        "approval.manage"
+        "approval.manage",
+        "configuration.configure"
     ],
     "Sales Representative": [
         "customers.read",
@@ -157,10 +177,12 @@ ROLE_PERMISSION_MAPPINGS = {
         "catalog.read",
         "catalog.pricing.read",
         "pricing.read",
+        "pricing.calculate",
         "quotes.read",
         "quotes.create",
         "quotes.update",
-        "approval.read"
+        "approval.read",
+        "configuration.configure"
     ],
     "Executive": [
         "customer.read",
@@ -170,12 +192,28 @@ ROLE_PERMISSION_MAPPINGS = {
         "customer.analytics",
         "customer.export",
         "catalog.read",
+        "catalog.create",
+        "catalog.update",
         "catalog.pricing.read",
         "catalog.cost.read",
         "catalog.margin.read",
         "pricing.read",
+        "pricing.calculate",
+        "pricing.config.view",
+        "pricing.config.create",
+        "pricing.config.update",
+        "pricing.config.deactivate",
+        "pricing.rule.create",
+        "pricing.rule.update",
+        "pricing.rule.delete",
+        "pricing.cost.view",
+        "pricing.margin.view",
+        "pricing.discount.approve",
+        "pricing.override",
         "quotes.read",
-        "approval.read"
+        "approval.read",
+        "configuration.configure",
+        "configuration.admin"
     ],
     "Viewer": [
         "customers.read",
@@ -190,6 +228,7 @@ ROLE_PERMISSION_MAPPINGS = {
         "catalog.pricing.read",
         "pricing.read",
         "quotes.read",
-        "approval.read"
+        "approval.read",
+        "configuration.configure"
     ]
 }
