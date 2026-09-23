@@ -55,6 +55,8 @@ class ProductPricingTier(Base):
     min_quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     max_quantity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Null = unlimited
     price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)  # Per-unit tier price or fixed block price
+    display_order: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 class ProductPricingSetting(Base):
     """
@@ -66,6 +68,10 @@ class ProductPricingSetting(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
     pricing_method: Mapped[str] = mapped_column(String(50), default="STANDARD", nullable=False)
     markup_percent: Mapped[float] = mapped_column(Numeric(12, 2), default=0.00, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE", nullable=False)  # DRAFT, ACTIVE, INACTIVE, ARCHIVED
+    effective_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    discount_percent: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), default=0.00, nullable=True)
 
 
 class PricingAuditLog(Base):

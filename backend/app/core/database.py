@@ -3,14 +3,22 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 from backend.app.core.config import settings
 
+import sys
+from sqlalchemy.pool import NullPool
+
 # Create async engine with pool configuration suitable for enterprise applications
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,  # Set to True in development to log SQL queries if needed
-    pool_pre_ping=True,
-    pool_size=20,
-    max_overflow=10
-)
+# Use NullPool in pytest to avoid event-loop connection sharing across test cases
+engine_kwargs = {
+    "echo": False,
+    "pool_pre_ping": True,
+}
+if "pytest" in sys.modules:
+    engine_kwargs["poolclass"] = NullPool
+else:
+    engine_kwargs["pool_size"] = 20
+    engine_kwargs["max_overflow"] = 10
+
+engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 
 # Async session factory
 SessionLocal = async_sessionmaker(

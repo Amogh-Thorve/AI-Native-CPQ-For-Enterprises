@@ -31,7 +31,7 @@ def sanitize_product_read(product: Product, current_user: User) -> ProductRead:
         "cost_price": product.cost_price if has_cost_read else None,
         "currency": product.currency,
         "is_active": product.is_active,
-        "billing_type": product.billing_type,
+        "billing_type": product.billing_type if product.billing_type in ("MRC", "NRC", "USAGE") else "MRC",
         "category_id": product.category_id,
         "external_crm_id": product.external_crm_id,
     }
@@ -50,6 +50,7 @@ def sanitize_product_read(product: Product, current_user: User) -> ProductRead:
     return read_obj
 
 @router.get("/products", response_model=List[ProductRead])
+@router.get("/catalog/products", response_model=List[ProductRead])
 async def list_products(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),

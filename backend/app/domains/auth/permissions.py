@@ -147,6 +147,7 @@ ROLE_PERMISSION_MAPPINGS = {
         "quotes.read",
         "quotes.create",
         "quotes.update",
+        "quotes.delete",
         "quotes.approve",
         "quotes.export",
         "approval.read",
@@ -181,6 +182,7 @@ ROLE_PERMISSION_MAPPINGS = {
         "quotes.read",
         "quotes.create",
         "quotes.update",
+        "quotes.delete",
         "approval.read",
         "configuration.configure"
     ],
@@ -211,6 +213,11 @@ ROLE_PERMISSION_MAPPINGS = {
         "pricing.discount.approve",
         "pricing.override",
         "quotes.read",
+        "quotes.create",
+        "quotes.update",
+        "quotes.delete",
+        "quotes.approve",
+        "quotes.export",
         "approval.read",
         "configuration.configure",
         "configuration.admin"

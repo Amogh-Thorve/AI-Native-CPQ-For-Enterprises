@@ -21,6 +21,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { api, tokenStorage } from "@/lib/api";
+import { DEMO_PENDING_STORAGE_KEY } from "@/lib/demoTour";
 import type { LoginRequest, RegisterRequest, Token, UserRead } from "@/types/auth";
 
 // ─── API calls ────────────────────────────────────────────────────────────────
@@ -109,7 +110,14 @@ export function useLogin() {
       tokenStorage.set(data.access_token);
       const mappedUser = mapBackendUser(data.user);
       queryClient.setQueryData(["auth", "me"], mappedUser);
-      router.push("/dashboard");
+      const startDemo =
+        typeof window !== "undefined" && sessionStorage.getItem(DEMO_PENDING_STORAGE_KEY) === "1";
+      if (startDemo) {
+        sessionStorage.removeItem(DEMO_PENDING_STORAGE_KEY);
+        router.push("/dashboard?demo=1");
+      } else {
+        router.push("/dashboard");
+      }
     },
   });
 }

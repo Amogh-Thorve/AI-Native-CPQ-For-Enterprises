@@ -20,7 +20,6 @@ import {
   Eye,
   Laptop,
   Coins,
-  Database,
   Sliders,
   DollarSign,
   Package,
@@ -32,12 +31,13 @@ import {
   Grid,
   List as ListIcon,
   Filter,
-  CheckSquare,
-  Square,
+  Check,
   AlertCircle
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useDemoTour } from "@/components/demo/DemoTourProvider";
+import { DEMO_LATITUDE_ID } from "@/lib/demoMockData";
 import type {
   ProductRead,
   ProductCreate,
@@ -45,10 +45,30 @@ import type {
   CategoryRead,
   PriceBookRead
 } from "@/types/catalog";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Button,
+  StatusBadge,
+  PageHeader,
+  DataTable,
+  TableHead,
+  TableRow,
+  TableHeader,
+  TableCell,
+  SearchBar,
+  FilterSelect,
+  Modal,
+  Tabs
+} from "@/components/ui";
 
 export default function ProductCatalogPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { isActive: isDemoActive, flags: demoFlags, mockProducts, mockCategories } = useDemoTour();
 
   // Role permissions
   const isManager = user?.role === "manager" || user?.role === "admin";
@@ -71,17 +91,18 @@ export default function ProductCatalogPage() {
   const [pageSize] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  
-  // Advanced filters from Left panel
+
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string>("ACTIVE"); // default view: Active products
+  const [statusFilter, setStatusFilter] = useState<string>("ACTIVE");
   const [productTypeFilter, setProductTypeFilter] = useState<string>("ALL");
-  const [selectedPriceBookId, setSelectedPriceBookId] = useState<string>("ALL");
   const [sortBy, setSortBy] = useState<string>("created_newest");
 
   // Selection & Details panel
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "pricing" | "specs">("overview");
+  const [activeTab, setActiveTab] = useState<string>("overview");
+
+  // View Mode: Table vs Grid
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -102,10 +123,6 @@ export default function ProductCatalogPage() {
   // Row context menu state
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
 
-  // Layout View toggle
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-
-  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
@@ -114,29 +131,16 @@ export default function ProductCatalogPage() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Click outside listener for row context menu
-  useEffect(() => {
-    const handleOutsideClick = () => setActiveMenuId(null);
-    window.addEventListener("click", handleOutsideClick);
-    return () => window.removeEventListener("click", handleOutsideClick);
-  }, []);
-
-  // ─── React Query APIs ────────────────────────────────────────────────────────
-
   // Fetch Categories
-  const { data: categories = [] } = useQuery<CategoryRead[]>({
+  const { data: liveCategories = [] } = useQuery<CategoryRead[]>({
     queryKey: ["categories"],
     queryFn: () => api.get<CategoryRead[]>("/categories"),
+    enabled: !isDemoActive,
   });
-
-  // Fetch Price Books
-  const { data: priceBooks = [] } = useQuery<PriceBookRead[]>({
-    queryKey: ["price-books"],
-    queryFn: () => api.get<PriceBookRead[]>("/price-books"),
-  });
+  const categories = isDemoActive ? mockCategories : liveCategories;
 
   // Fetch Products
-  const { data: products = [], isLoading, isError, error } = useQuery<ProductRead[]>({
+  const { data: liveProducts = [], isLoading: isLiveLoading, isError, error } = useQuery<ProductRead[]>({
     queryKey: ["products", page, statusFilter, selectedCategories, debouncedSearch],
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
@@ -149,21 +153,33 @@ export default function ProductCatalogPage() {
       }
       return api.get<ProductRead[]>(`/products?${params.toString()}`);
     },
-    placeholderData: keepPreviousData
+    placeholderData: keepPreviousData,
+    enabled: !isDemoActive,
   });
+  const products = isDemoActive ? mockProducts : liveProducts;
+  const isLoading = isDemoActive ? false : isLiveLoading;
+
+  useEffect(() => {
+    if (!isDemoActive) return;
+    if (demoFlags.openProductRecord) {
+      setSelectedProductId(DEMO_LATITUDE_ID);
+      setActiveTab("overview");
+    } else {
+      setSelectedProductId(null);
+    }
+  }, [isDemoActive, demoFlags.openProductRecord]);
 
   // Fetch Single Product Details
-  const { data: selectedProduct } = useQuery<ProductRead>({
+  const { data: liveSelectedProduct } = useQuery<ProductRead>({
     queryKey: ["product", selectedProductId],
     queryFn: () => api.get<ProductRead>(`/products/${selectedProductId}`),
-    enabled: selectedProductId !== null,
+    enabled: selectedProductId !== null && !isDemoActive,
   });
+  const selectedProduct = isDemoActive
+    ? mockProducts.find((p) => p.id === selectedProductId)
+    : liveSelectedProduct;
 
-  const selCostNum = selectedProduct?.cost_price !== undefined && selectedProduct?.cost_price !== null ? (typeof selectedProduct.cost_price === "string" ? parseFloat(selectedProduct.cost_price) : selectedProduct.cost_price) : null;
-  const selMarginPercentNum = selectedProduct?.margin_percentage !== undefined && selectedProduct?.margin_percentage !== null ? (typeof selectedProduct.margin_percentage === "string" ? parseFloat(selectedProduct.margin_percentage) : selectedProduct.margin_percentage) : null;
-  const selMarginAmtNum = selectedProduct?.margin_amount !== undefined && selectedProduct?.margin_amount !== null ? (typeof selectedProduct.margin_amount === "string" ? parseFloat(selectedProduct.margin_amount) : selectedProduct.margin_amount) : null;
-
-  // Create Product Mutation
+  // Mutations
   const createProductMutation = useMutation({
     mutationFn: (newProd: ProductCreate) => api.post<ProductRead>("/products", newProd),
     onSuccess: () => {
@@ -172,9 +188,8 @@ export default function ProductCatalogPage() {
     }
   });
 
-  // Edit Product Mutation
   const editProductMutation = useMutation({
-    mutationFn: (payload: { id: number; data: ProductUpdate }) => 
+    mutationFn: (payload: { id: number; data: ProductUpdate }) =>
       api.put<ProductRead>(`/products/${payload.id}`, payload.data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -183,7 +198,6 @@ export default function ProductCatalogPage() {
     }
   });
 
-  // Archive Product Mutation
   const archiveProductMutation = useMutation({
     mutationFn: (id: number) => api.patch<ProductRead>(`/products/${id}/archive`),
     onSuccess: (data) => {
@@ -193,7 +207,6 @@ export default function ProductCatalogPage() {
     }
   });
 
-  // Restore Product Mutation
   const restoreProductMutation = useMutation({
     mutationFn: (id: number) => api.patch<ProductRead>(`/products/${id}/restore`),
     onSuccess: (data) => {
@@ -203,7 +216,6 @@ export default function ProductCatalogPage() {
     }
   });
 
-  // Excel Product Import Mutation
   const importProductsMutation = useMutation({
     mutationFn: async (file: File) => {
       const formData = new FormData();
@@ -221,8 +233,7 @@ export default function ProductCatalogPage() {
     }
   });
 
-  // ─── Filter & Search Helpers ──────────────────────────────────────────────────
-
+  // Filter & Sort
   const processedProducts = React.useMemo(() => {
     let list = [...products];
 
@@ -232,8 +243,7 @@ export default function ProductCatalogPage() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.sku.toLowerCase().includes(q) ||
-          (p.description && p.description.toLowerCase().includes(q)) ||
-          (p.external_crm_id && p.external_crm_id.toLowerCase().includes(q))
+          (p.description && p.description.toLowerCase().includes(q))
       );
     }
 
@@ -248,1328 +258,622 @@ export default function ProductCatalogPage() {
     }
 
     if (productTypeFilter !== "ALL") {
-      list = list.filter((p) => {
-        const skuUpper = p.sku.toUpperCase();
-        if (productTypeFilter === "SERVICE") return skuUpper.includes("SVC") || skuUpper.includes("SUP");
-        if (productTypeFilter === "BUNDLE") return skuUpper.includes("BNDL");
-        return !skuUpper.includes("SVC") && !skuUpper.includes("SUP") && !skuUpper.includes("BNDL");
-      });
+      list = list.filter((p) => p.billing_type === productTypeFilter);
     }
 
-    list.sort((a, b) => {
-      if (sortBy === "created_newest") return b.id - a.id;
-      if (sortBy === "created_oldest") return a.id - b.id;
-      if (sortBy === "sku_asc") return a.sku.localeCompare(b.sku);
-      if (sortBy === "sku_desc") return b.sku.localeCompare(a.sku);
-      if (sortBy === "price_asc") return a.base_price - b.base_price;
-      if (sortBy === "price_desc") return b.base_price - a.base_price;
-      return 0;
-    });
+    if (sortBy === "name_asc") {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === "price_asc") {
+      list.sort((a, b) => Number(a.base_price) - Number(b.base_price));
+    } else if (sortBy === "price_desc") {
+      list.sort((a, b) => Number(b.base_price) - Number(a.base_price));
+    }
 
     return list;
   }, [products, debouncedSearch, selectedCategories, statusFilter, productTypeFilter, sortBy]);
 
-  const handleToggleCategory = (catId: number) => {
-    setSelectedCategories((prev) =>
-      prev.includes(catId) ? prev.filter((id) => id !== catId) : [...prev, catId]
-    );
-    setPage(1);
-  };
-
-  const getProductTypeInfo = (sku: string) => {
-    const skuUpper = sku.toUpperCase();
-    if (skuUpper.includes("SVC") || skuUpper.includes("SUP")) {
-      return { label: "Service", colorClass: "bg-purple-950/40 text-purple-400 border border-purple-800/40" };
-    }
-    if (skuUpper.includes("BNDL")) {
-      return { label: "Bundle", colorClass: "bg-amber-955/40 text-amber-400 border border-amber-900/40" };
-    }
-    return { label: "Product", colorClass: "bg-blue-950/40 text-blue-400 border border-blue-800/40" };
-  };
-
-  const getProductIcon = (sku: string) => {
-    const type = getProductTypeInfo(sku).label;
-    if (type === "Service") return <HelpCircle size={14} className="text-purple-400" />;
-    if (type === "Bundle") return <Package size={14} className="text-amber-400" />;
-    return <Laptop size={14} className="text-blue-400" />;
-  };
-
-  const handleCreateProductSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateProduct = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isDemoActive) return;
     const formData = new FormData(e.currentTarget);
-    const costVal = formData.get("cost_price") as string;
-    const payload: ProductCreate = {
+    const data: ProductCreate = {
       sku: formData.get("sku") as string,
       name: formData.get("name") as string,
       description: (formData.get("description") as string) || null,
       base_price: parseFloat(formData.get("base_price") as string) || 0,
-      cost_price: costVal ? parseFloat(costVal) : null,
-      currency: "USD",
-      is_active: formData.get("is_active") === "true",
-      billing_type: (formData.get("billing_type") as "MRC" | "NRC" | "USAGE") || "MRC",
+      currency: (formData.get("currency") as string) || "USD",
+      billing_type: (formData.get("billing_type") as any) || "NRC",
       category_id: formData.get("category_id") ? parseInt(formData.get("category_id") as string) : null,
-      external_crm_id: (formData.get("external_crm_id") as string) || null,
+      cost_price: formData.get("cost_price") ? parseFloat(formData.get("cost_price") as string) : null,
     };
-    createProductMutation.mutate(payload);
+    createProductMutation.mutate(data);
   };
 
-  const handleEditProductSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditProduct = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedProduct) return;
+    if (!selectedProductId || isDemoActive) return;
     const formData = new FormData(e.currentTarget);
-    const costVal = formData.get("cost_price") as string;
-    const payload: ProductUpdate = {
-      sku: formData.get("sku") as string,
+    const data: ProductUpdate = {
       name: formData.get("name") as string,
       description: (formData.get("description") as string) || null,
       base_price: parseFloat(formData.get("base_price") as string) || 0,
-      cost_price: costVal ? parseFloat(costVal) : null,
-      currency: "USD",
-      is_active: formData.get("is_active") === "true",
-      billing_type: (formData.get("billing_type") as "MRC" | "NRC" | "USAGE") || undefined,
+      currency: (formData.get("currency") as string) || "USD",
+      billing_type: (formData.get("billing_type") as any) || "NRC",
       category_id: formData.get("category_id") ? parseInt(formData.get("category_id") as string) : null,
-      external_crm_id: (formData.get("external_crm_id") as string) || null,
+      cost_price: formData.get("cost_price") ? parseFloat(formData.get("cost_price") as string) : null,
     };
-    editProductMutation.mutate({ id: selectedProduct.id, data: payload });
+    editProductMutation.mutate({ id: selectedProductId, data });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setSelectedFile(e.target.files[0]);
-      setImportResult(null);
-    }
-  };
-
-  const triggerUpload = () => {
-    if (selectedFile) {
-      importProductsMutation.mutate(selectedFile);
-    }
-  };
+  const detailTabs = [
+    { id: "overview", label: "Overview" },
+    { id: "pricing", label: "Pricing & Margins" },
+    { id: "specs", label: "Specifications" },
+  ];
 
   return (
-    <div className="flex gap-6 min-h-[calc(100vh-8rem)] relative select-none">
-      
-      {/* ─── LEFT PANEL: CATEGORIES & STATUS FILTERS ─── */}
-      <div className="w-[18%] bg-zinc-950/20 border border-zinc-850 p-4.5 rounded-xl space-y-6 shrink-0 h-fit">
-        
-        {/* Categories section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-zinc-300 uppercase tracking-wider">
-            <span>Categories</span>
-            <span className="text-[10px] text-zinc-550 lowercase font-medium">{categories.length} loaded</span>
-          </div>
-          <div className="space-y-2">
-            <button
-              onClick={() => setSelectedCategories([])}
-              className="flex items-center gap-2 text-xs font-semibold w-full text-left"
-            >
-              {selectedCategories.length === 0 ? (
-                <CheckSquare size={14} className="text-teal-400" />
-              ) : (
-                <Square size={14} className="text-zinc-600" />
-              )}
-              <span className={selectedCategories.length === 0 ? "text-zinc-200" : "text-zinc-450"}>All Categories</span>
-            </button>
-            {categories.map((cat) => {
-              const isSelected = selectedCategories.includes(cat.id);
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => handleToggleCategory(cat.id)}
-                  className="flex items-center gap-2 text-xs font-medium w-full text-left pl-1"
-                >
-                  {isSelected ? (
-                    <CheckSquare size={13} className="text-teal-500" />
-                  ) : (
-                    <Square size={13} className="text-zinc-650" />
-                  )}
-                  <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>{cat.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Status Section */}
-        <div className="space-y-3 pt-4 border-t border-zinc-850/50">
-          <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Status</div>
-          <div className="space-y-2">
-            {[
-              { val: "ALL", label: "All Statuses" },
-              { val: "ACTIVE", label: "Active Only" },
-              { val: "INACTIVE", label: "Inactive Only" }
-            ].map((st) => {
-              const isSelected = statusFilter === st.val;
-              return (
-                <button
-                  key={st.val}
-                  onClick={() => setStatusFilter(st.val)}
-                  className="flex items-center gap-2 text-xs font-medium w-full text-left"
-                >
-                  {isSelected ? (
-                    <CheckSquare size={13} className="text-teal-500" />
-                  ) : (
-                    <Square size={13} className="text-zinc-650" />
-                  )}
-                  <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>{st.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Product Type section */}
-        <div className="space-y-3 pt-4 border-t border-zinc-850/50">
-          <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Product Type</div>
-          <div className="space-y-2">
-            {[
-              { val: "ALL", label: "All Types" },
-              { val: "PRODUCT", label: "Product" },
-              { val: "BUNDLE", label: "Bundle" },
-              { val: "SERVICE", label: "Service" }
-            ].map((tp) => {
-              const isSelected = productTypeFilter === tp.val;
-              return (
-                <button
-                  key={tp.val}
-                  onClick={() => setProductTypeFilter(tp.val)}
-                  className="flex items-center gap-2 text-xs font-medium w-full text-left"
-                >
-                  {isSelected ? (
-                    <CheckSquare size={13} className="text-teal-500" />
-                  ) : (
-                    <Square size={13} className="text-zinc-650" />
-                  )}
-                  <span className={isSelected ? "text-zinc-300" : "text-zinc-500"}>{tp.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Price Book section */}
-        <div className="space-y-3 pt-4 border-t border-zinc-850/50">
-          <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Price Book</div>
-          <select
-            value={selectedPriceBookId}
-            onChange={(e) => setSelectedPriceBookId(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-850 text-zinc-400 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-zinc-700"
-          >
-            <option value="ALL">All Price Books</option>
-            {priceBooks.map((pb) => (
-              <option key={pb.id} value={pb.id.toString()}>{pb.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Clear Filters */}
-        <button
-          onClick={() => {
-            setSelectedCategories([]);
-            setStatusFilter("ACTIVE");
-            setProductTypeFilter("ALL");
-            setSelectedPriceBookId("ALL");
-            setSearchQuery("");
-          }}
-          className="w-full py-2 border border-zinc-850 hover:bg-zinc-900 rounded-lg text-[10px] font-extrabold uppercase text-zinc-400 hover:text-zinc-200 transition-colors flex items-center justify-center gap-1"
-        >
-          <RotateCcw size={10} />
-          <span>Clear Filters</span>
-        </button>
-
+    <div className="space-y-6">
+      {/* ─── Page Header ────────────────────────────────────────── */}
+      <div data-demo="catalog-header">
+      <PageHeader
+        title="Product Catalog"
+        description="Browse and manage your products, pricing models, and price books"
+        actions={
+          <>
+            {canImport && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Upload size={14} />}
+                onClick={() => setIsImportModalOpen(true)}
+              >
+                Import Excel
+              </Button>
+            )}
+            {canCreate && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus size={14} />}
+                onClick={() => setIsCreateModalOpen(true)}
+              >
+                Add Product
+              </Button>
+            )}
+          </>
+        }
+      />
       </div>
 
-      {/* ─── MAIN CONTENT: PRODUCT LISTINGS ─── */}
-      <div className={`flex-1 space-y-6 transition-all duration-300 ${selectedProductId ? "max-w-[48%]" : "max-w-full"}`}>
-        
-        {/* Header Toolbar */}
-        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-zinc-100 mb-1 flex items-center gap-2">
-              <BookOpen size={28} className="text-zinc-500" />
-              <span>Product Catalog</span>
-            </h1>
-            <p className="text-xs text-zinc-400">Browse through active product lines, classifications, and custom Price Books.</p>
-          </div>
+      {/* ─── Filter Bar ─────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+        <SearchBar
+          value={searchQuery}
+          onChangeValue={setSearchQuery}
+          placeholder="Search products by SKU, name, or description..."
+          className="w-full sm:w-80"
+        />
 
-          <div className="flex items-center gap-2">
-            {canImport && (
-              <button
-                onClick={() => {
-                  setSelectedFile(null);
-                  setImportResult(null);
-                  setIsImportModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 text-zinc-300 px-3.5 py-2 rounded-lg text-xs font-semibold hover:bg-zinc-800 hover:text-zinc-150 transition-colors"
-                title="Import Excel catalog spreadsheet"
-              >
-                <Upload size={14} />
-                <span>Import</span>
-              </button>
-            )}
-            {canCreate && (
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="flex items-center gap-1.5 bg-teal-500 text-zinc-950 px-4 py-2 rounded-lg text-xs font-extrabold hover:bg-teal-400 transition-colors shadow-lg shadow-teal-500/10"
-              >
-                <Plus size={14} />
-                <span>New Product</span>
-              </button>
-            )}
-          </div>
-        </div>
+        <div className="flex items-center gap-2.5 w-full sm:w-auto flex-wrap">
+          <FilterSelect
+            value={selectedCategories[0]?.toString() || "ALL"}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedCategories(val === "ALL" ? [] : [parseInt(val)]);
+            }}
+            label="Category"
+          >
+            <option value="ALL">All Categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id.toString()}>
+                {c.name}
+              </option>
+            ))}
+          </FilterSelect>
 
-        {/* Toolbar Search / View toggles */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-zinc-900 border border-zinc-850 p-2.5 rounded-xl shadow-md">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search items by name, SKU, category, or CRM product code..."
-              className="w-full pl-9 pr-4 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-zinc-700 placeholder-zinc-650"
-            />
-          </div>
+          <FilterSelect
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            label="Status"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Archived</option>
+          </FilterSelect>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto self-end sm:self-auto justify-end">
-            <div className="flex items-center gap-1 border-r border-zinc-800 pr-2.5">
-              <span className="text-[10px] text-zinc-550 font-semibold whitespace-nowrap">Sort by:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="bg-transparent text-zinc-350 text-xs font-bold focus:outline-none cursor-pointer"
-              >
-                <option value="created_newest">Created On (Newest)</option>
-                <option value="created_oldest">Created On (Oldest)</option>
-                <option value="sku_asc">SKU (A-Z)</option>
-                <option value="sku_desc">SKU (Z-A)</option>
-                <option value="price_asc">Price (Low to High)</option>
-                <option value="price_desc">Price (High to Low)</option>
-              </select>
-            </div>
+          <FilterSelect
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            label="Sort"
+          >
+            <option value="created_newest">Newest First</option>
+            <option value="name_asc">Name A-Z</option>
+            <option value="price_asc">Price Low to High</option>
+            <option value="price_desc">Price High to Low</option>
+          </FilterSelect>
 
-            <div className="flex items-center bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
-              <button
-                onClick={() => setViewMode("list")}
-                className={`p-1 rounded ${viewMode === "list" ? "bg-zinc-800 text-zinc-200" : "text-zinc-600 hover:text-zinc-400"}`}
-              >
-                <ListIcon size={14} />
-              </button>
-              <button
-                onClick={() => setViewMode("grid")}
-                className={`p-1 rounded ${viewMode === "grid" ? "bg-zinc-800 text-zinc-200" : "text-zinc-600 hover:text-zinc-400"}`}
-              >
-                <Grid size={14} />
-              </button>
-            </div>
+          {/* Table / Grid view switcher */}
+          <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-1.5 rounded ${viewMode === "list" ? "bg-white text-blue-600 shadow-2xs font-semibold" : "text-slate-400 hover:text-slate-700"}`}
+              title="Table View"
+            >
+              <ListIcon size={14} />
+            </button>
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`p-1.5 rounded ${viewMode === "grid" ? "bg-white text-blue-600 shadow-2xs font-semibold" : "text-slate-400 hover:text-slate-700"}`}
+              title="Grid View"
+            >
+              <Grid size={14} />
+            </button>
           </div>
         </div>
+      </div>
 
-        {/* Showing density */}
-        <div className="text-[10px] text-zinc-550 font-semibold pl-1.5 flex justify-between items-center">
-          <span>Showing {processedProducts.length > 0 ? (page - 1) * pageSize + 1 : 0} to {Math.min(page * pageSize, processedProducts.length)} of {processedProducts.length} items</span>
-          {statusFilter !== "ACTIVE" && <span className="text-amber-500 font-bold">Filters Active</span>}
-        </div>
+      {/* ─── Main Content Split ──────────────────────────────────── */}
+      <div className="flex gap-6 items-start">
+        {/* Left: Products List or Grid */}
+        <div className={`transition-all duration-200 ${selectedProductId ? "w-full lg:w-7/12" : "w-full"}`}>
+          {viewMode === "list" ? (
+            <Card data-demo="catalog-table">
+              <DataTable className="border-0 rounded-none">
+                <TableHead>
+                  <TableRow>
+                    <TableHeader>Product</TableHeader>
+                    <TableHeader>SKU</TableHeader>
+                    <TableHeader>Category</TableHeader>
+                    <TableHeader>Type</TableHeader>
+                    <TableHeader>Status</TableHeader>
+                    {canViewCost && <TableHeader>Cost</TableHeader>}
+                    <TableHeader>Base Price</TableHeader>
+                    {canViewMargin && <TableHeader>Margin</TableHeader>}
+                    <TableHeader className="w-16 text-right">Actions</TableHeader>
+                  </TableRow>
+                </TableHead>
+                <tbody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-12 text-slate-500">
+                        <RefreshCw size={18} className="animate-spin inline-block mr-2 text-blue-600" />
+                        Loading product catalog...
+                      </TableCell>
+                    </TableRow>
+                  ) : processedProducts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-12 text-slate-500">
+                        No products match your filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    processedProducts.map((p) => {
+                      const costNum = p.cost_price ? Number(p.cost_price) : null;
+                      const marginPct = p.margin_percentage ? Number(p.margin_percentage) : null;
 
-        {/* Main listing view */}
-        {isLoading ? (
-          <div className="border border-zinc-850 rounded-xl bg-zinc-900/30 p-24 text-center">
-            <RefreshCw className="mx-auto text-teal-500 animate-spin mb-3" size={24} />
-            <span className="text-sm text-zinc-400 font-medium">Fetching catalog items...</span>
-          </div>
-        ) : isError ? (
-          <div className="border border-red-900/30 rounded-xl bg-red-950/10 p-12 text-center">
-            <p className="text-sm text-red-400 font-semibold mb-2">Error loading product catalog</p>
-            <p className="text-xs text-red-500">{(error as any)?.detail || "Unable to retrieve records."}</p>
-          </div>
-        ) : processedProducts.length === 0 ? (
-          <div className="border border-zinc-850 rounded-xl bg-zinc-900/30 p-20 text-center">
-            <BookOpen size={40} className="mx-auto text-zinc-650 mb-3" />
-            <h3 className="text-sm font-bold text-zinc-200 mb-1">Catalog empty</h3>
-            <p className="text-xs text-zinc-500 max-w-xs mx-auto mb-4">
-              Add new catalog products or clear active filters to discover items.
-            </p>
-            {canCreate && (
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="inline-flex items-center gap-1.5 bg-zinc-800 border border-zinc-750 text-zinc-200 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-zinc-750 hover:text-zinc-100 transition-colors"
-              >
-                <Plus size={12} />
-                <span>Create Product</span>
-              </button>
-            )}
-          </div>
-        ) : viewMode === "list" ? (
-          
-          /* TABLE VIEW */
-          <div className="border border-zinc-850 rounded-xl bg-zinc-900/35 overflow-hidden shadow-lg">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-800 text-[10px] uppercase font-bold text-zinc-500 bg-zinc-900/50">
-                    <th className="px-4.5 py-3">Product</th>
-                    <th className="px-4 py-3">SKU</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Product Type</th>
-                    <th className="px-4 py-3">Status</th>
-                    {canViewCost && <th className="px-4 py-3">Cost</th>}
-                    <th className="px-4 py-3">Base Price</th>
-                    {canViewMargin && <th className="px-4 py-3">Margin</th>}
-                    <th className="px-4 py-3 w-[60px]"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-850 text-xs">
-                  {processedProducts.map((p) => {
-                    const typeInfo = getProductTypeInfo(p.sku);
-                    
-                    const costPriceNum = p.cost_price !== undefined && p.cost_price !== null ? (typeof p.cost_price === "string" ? parseFloat(p.cost_price) : p.cost_price) : null;
-                    const marginPercentageNum = p.margin_percentage !== undefined && p.margin_percentage !== null ? (typeof p.margin_percentage === "string" ? parseFloat(p.margin_percentage) : p.margin_percentage) : null;
-                    const marginAmountNum = p.margin_amount !== undefined && p.margin_amount !== null ? (typeof p.margin_amount === "string" ? parseFloat(p.margin_amount) : p.margin_amount) : null;
-
-                    return (
-                      <tr
-                        key={p.id}
-                        onClick={() => {
-                          setSelectedProductId(p.id);
-                          setActiveTab("overview");
-                        }}
-                        className={`hover:bg-zinc-800/40 cursor-pointer transition-colors ${selectedProductId === p.id ? "bg-zinc-800/50" : ""} ${!p.is_active ? "opacity-60 bg-zinc-950/25" : ""}`}
-                      >
-                        <td className="px-4.5 py-3.5 flex items-start gap-2.5">
-                          <div className="w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700/60 flex items-center justify-center font-bold text-zinc-400 shrink-0 mt-0.5">
-                            {getProductIcon(p.sku)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-zinc-200">{p.name}</div>
-                            <div className="text-[10px] text-zinc-550 max-w-[200px] truncate">{p.description || "No description provided."}</div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-zinc-450 tracking-wider font-mono text-[10px]">{p.sku}</td>
-                        <td className="px-4 py-3 text-zinc-400 font-semibold">{p.category?.name || "Unclassified"}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide ${typeInfo.colorClass}`}>
-                            {typeInfo.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide border ${
-                            p.is_active 
-                              ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" 
-                              : "bg-zinc-800 text-zinc-455 border-zinc-750"
-                          }`}>
-                            {p.is_active ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-                        {canViewCost && (
-                          <td className="px-4 py-3 text-zinc-450">
-                            {costPriceNum !== null ? (
-                              <span>${costPriceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
-                            ) : (
-                              <span>—</span>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-4 py-3 text-zinc-300 font-extrabold">${p.base_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                        {canViewMargin && (
-                          <td className="px-4 py-3 font-extrabold">
-                            {marginPercentageNum !== null ? (
-                              <div className="flex flex-col">
-                                <span className={marginPercentageNum < 0 ? "text-red-400" : "text-teal-400"}>
-                                  {marginPercentageNum.toFixed(2)}%
-                                </span>
-                                {marginAmountNum !== null && (
-                                  <span className="text-[10px] text-zinc-550 font-medium">
-                                    {marginAmountNum < 0 ? "-" : ""}${Math.abs(marginAmountNum).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                  </span>
-                                )}
+                      return (
+                        <TableRow
+                          key={p.id}
+                          data-demo={
+                            /latitude 7440/i.test(p.name) || p.sku === "DEV-LAP-001"
+                              ? "catalog-latitude"
+                              : undefined
+                          }
+                          onClick={() => setSelectedProductId(p.id)}
+                          className={`cursor-pointer ${selectedProductId === p.id ? "bg-blue-50/60" : ""}`}
+                        >
+                          <TableCell>
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                                <Package size={14} />
                               </div>
-                            ) : (
-                              <span className="text-zinc-650 italic font-medium">N/A</span>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-4 py-3 relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(activeMenuId === p.id ? null : p.id);
-                            }}
-                            className="p-1 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
-                          >
-                            <MoreHorizontal size={16} />
-                          </button>
-                          
-                          {/* Row Context Menu */}
-                          {activeMenuId === p.id && (
-                            <div 
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-4 mt-1.5 w-36 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl z-20 overflow-hidden divide-y divide-zinc-800"
-                            >
-                              <div className="py-1">
-                                <button
-                                  onClick={() => {
-                                    setSelectedProductId(p.id);
-                                    setActiveTab("overview");
-                                    setActiveMenuId(null);
-                                  }}
-                                  className="flex items-center gap-2 w-full px-3 py-2 text-left text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-                                >
-                                  <Eye size={12} />
-                                  <span>View Card</span>
-                                </button>
-                                {canUpdate && (
-                                  <button
-                                    onClick={() => {
-                                      setSelectedProductId(p.id);
-                                      setIsEditModalOpen(true);
-                                      setActiveMenuId(null);
-                                    }}
-                                    className="flex items-center gap-2 w-full px-3 py-2 text-left text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-                                  >
-                                    <Edit2 size={12} />
-                                    <span>Edit Product</span>
-                                  </button>
-                                )}
-                              </div>
-                              {isManager && (
-                                <div className="py-1">
-                                  {p.is_active ? (
-                                    <button
-                                      onClick={() => {
-                                        setArchiveConfirmId(p.id);
-                                        setActiveMenuId(null);
-                                      }}
-                                      className="flex items-center gap-2 w-full px-3 py-2 text-left text-zinc-450 hover:bg-zinc-800 hover:text-red-400 transition-colors"
-                                    >
-                                      <Archive size={12} />
-                                      <span>Deactivate</span>
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => {
-                                        setRestoreConfirmId(p.id);
-                                        setActiveMenuId(null);
-                                      }}
-                                      className="flex items-center gap-2 w-full px-3 py-2 text-left text-teal-455 hover:bg-zinc-800 hover:text-teal-350 transition-colors"
-                                    >
-                                      <RotateCcw size={12} />
-                                      <span>Restore</span>
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                              <span className="font-semibold text-slate-900 text-xs">{p.name}</span>
                             </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-slate-500 text-[11px]">{p.sku}</TableCell>
+                          <TableCell className="text-slate-600">{p.category?.name || "General"}</TableCell>
+                          <TableCell>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                              {p.billing_type}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={p.is_active ? "ACTIVE" : "INACTIVE"} />
+                          </TableCell>
+                          {canViewCost && (
+                            <TableCell className="text-slate-500">
+                              {costNum !== null ? `$${costNum.toFixed(2)}` : "—"}
+                            </TableCell>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <TableCell className="font-bold text-slate-900">
+                            ${Number(p.base_price).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </TableCell>
+                          {canViewMargin && (
+                            <TableCell>
+                              {marginPct !== null ? (
+                                <span className={`font-semibold text-xs ${marginPct >= 30 ? "text-emerald-600" : "text-amber-600"}`}>
+                                  {marginPct.toFixed(1)}%
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </TableCell>
+                          )}
+                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => {
+                                setSelectedProductId(p.id);
+                                setIsEditModalOpen(true);
+                              }}
+                              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Edit product"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="border-t border-zinc-850 p-4 flex items-center justify-between text-xs text-zinc-500 bg-zinc-900/20">
-              <div>
-                Showing <span className="font-semibold text-zinc-400">{(page - 1) * pageSize + 1}</span> to{" "}
-                <span className="font-semibold text-zinc-400">{Math.min(page * pageSize, processedProducts.length)}</span>{" "}
-                of <span className="font-semibold text-zinc-400">{processedProducts.length}</span> items
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                  disabled={page === 1}
-                  className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="px-3 text-zinc-300 font-medium">Page {page}</span>
-                <button
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={page * pageSize >= processedProducts.length}
-                  className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          
-          /* GRID VIEW */
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {processedProducts.map((p) => {
-              const typeInfo = getProductTypeInfo(p.sku);
-              return (
-                <div
+              </DataTable>
+            </Card>
+          ) : (
+            /* Grid View */
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {processedProducts.map((p) => (
+                <Card
                   key={p.id}
+                  data-demo={
+                    /latitude 7440/i.test(p.name) || p.sku === "DEV-LAP-001"
+                      ? "catalog-latitude"
+                      : undefined
+                  }
                   onClick={() => setSelectedProductId(p.id)}
-                  className={`bg-zinc-900/35 border border-zinc-850 rounded-xl p-4.5 space-y-4 hover:border-zinc-700 cursor-pointer transition-all relative ${selectedProductId === p.id ? "border-teal-500/80 bg-zinc-900/60" : ""} ${!p.is_active ? "opacity-60 bg-zinc-950/25" : ""}`}
+                  className={`p-4 cursor-pointer hover:border-blue-400 transition-all ${selectedProductId === p.id ? "ring-2 ring-blue-500" : ""}`}
                 >
-                  <div className="flex justify-between items-start">
-                    <div className="flex gap-2.5 items-start">
-                      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center font-bold">
-                        {getProductIcon(p.sku)}
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-zinc-200 text-xs">{p.name}</h4>
-                        <span className="text-[10px] text-zinc-550 font-mono tracking-wide">{p.sku}</span>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
-                      p.is_active ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" : "bg-zinc-800 text-zinc-450 border-zinc-750"
-                    }`}>
-                      {p.is_active ? "Active" : "Inactive"}
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-[10px] font-mono text-slate-400">{p.sku}</span>
+                    <StatusBadge status={p.is_active ? "ACTIVE" : "INACTIVE"} />
+                  </div>
+                  <h4 className="font-semibold text-slate-900 text-xs mb-1">{p.name}</h4>
+                  <p className="text-[11px] text-slate-500 line-clamp-2 mb-3">
+                    {p.description || "Enterprise product"}
+                  </p>
+                  <div className="border-t border-slate-100 pt-2 flex justify-between items-baseline">
+                    <span className="text-[10px] text-slate-400">{p.billing_type}</span>
+                    <span className="font-bold text-slate-900 text-sm">
+                      ${Number(p.base_price).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </span>
                   </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
 
-                  <p className="text-[10px] text-zinc-500 leading-normal line-clamp-2 h-7">{p.description || "No description provided."}</p>
-
-                  <div className="flex justify-between items-center pt-2.5 border-t border-zinc-850">
-                    <span className="text-xs text-zinc-400 font-medium">{p.category?.name || "Unclassified"}</span>
-                    <span className="text-sm font-extrabold text-zinc-150">${p.base_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+        {/* Right: Selected Product Details */}
+        {selectedProductId && selectedProduct && (
+          <div className="w-full lg:w-5/12 animate-in slide-in-from-right duration-200">
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 font-bold flex items-center justify-center text-sm border border-teal-200">
+                      <Package size={18} />
+                    </div>
+                    <div>
+                      <CardTitle className="text-sm">{selectedProduct.name}</CardTitle>
+                      <CardDescription>{selectedProduct.sku} • {selectedProduct.category?.name || "General"}</CardDescription>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setSelectedProductId(null)}
+                      className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              </CardHeader>
+
+              <div className="px-6 pt-1">
+                <Tabs tabs={detailTabs} activeTab={activeTab} onChange={setActiveTab} />
+              </div>
+
+              <CardContent className="space-y-4 pt-4 text-xs">
+                {activeTab === "overview" && (
+                  <div className="space-y-3">
+                    <p className="text-slate-600 leading-relaxed">
+                      {selectedProduct.description || "No description provided for this product."}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Category</span>
+                        <span className="text-slate-800 font-medium">{selectedProduct.category?.name || "General"}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Billing</span>
+                        <span className="text-slate-800 font-medium">{selectedProduct.billing_type}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Currency</span>
+                        <span className="text-slate-800 font-medium">{selectedProduct.currency}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block">Base Price</span>
+                        <span className="text-slate-900 font-bold">${Number(selectedProduct.base_price).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "pricing" && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Base Price:</span>
+                        <span className="font-bold text-slate-900">${Number(selectedProduct.base_price).toFixed(2)}</span>
+                      </div>
+                      {canViewCost && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Unit Cost:</span>
+                          <span className="font-medium text-slate-700">
+                            {selectedProduct.cost_price ? `$${Number(selectedProduct.cost_price).toFixed(2)}` : "—"}
+                          </span>
+                        </div>
+                      )}
+                      {canViewMargin && (
+                        <div className="flex justify-between border-t border-slate-200 pt-2">
+                          <span className="text-slate-500">Calculated Margin:</span>
+                          <span className="font-bold text-emerald-600">
+                            {selectedProduct.margin_percentage ? `${Number(selectedProduct.margin_percentage).toFixed(1)}%` : "—"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "specs" && (
+                  <div className="text-slate-500 italic py-4 text-center">
+                    No custom technical attributes configured.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>
 
-      {/* ─── RIGHT PANEL: SELECTED PRODUCT DETAILS ─── */}
-      {selectedProductId && selectedProduct && (
-        <div className="w-[33%] bg-zinc-900/60 border border-zinc-850 rounded-2xl shadow-xl flex flex-col fixed top-32 right-8 bottom-8 z-10 overflow-hidden animate-in slide-in-from-right duration-250 backdrop-blur-xl">
-          
-          {/* Detail Header */}
-          <div className="p-4 border-b border-zinc-850 flex items-center justify-between bg-zinc-900/80">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${selectedProduct.is_active ? "bg-emerald-400 animate-pulse" : "bg-zinc-650"}`} />
-              <h2 className="font-bold text-zinc-100 truncate max-w-[150px]">{selectedProduct.name}</h2>
+      {/* ─── MODAL: CREATE PRODUCT ─── */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title="Add Product to Catalog"
+        description="Enter product SKU, pricing, and classification."
+        maxWidth="lg"
+      >
+        <form onSubmit={handleCreateProduct} className="space-y-3.5 text-xs">
+          <div className="grid grid-cols-2 gap-3.5">
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">SKU *</label>
+              <input
+                type="text"
+                name="sku"
+                required
+                placeholder="DEV-PROD-001"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 font-mono"
+              />
             </div>
-            <div className="flex items-center gap-1">
-              {isManager && (
-                selectedProduct.is_active ? (
-                  <button
-                    onClick={() => setArchiveConfirmId(selectedProduct.id)}
-                    className="p-1 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded transition-colors"
-                    title="Deactivate item"
-                  >
-                    <Archive size={14} />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setRestoreConfirmId(selectedProduct.id)}
-                    className="p-1 text-zinc-400 hover:text-teal-400 hover:bg-zinc-800 rounded transition-colors"
-                    title="Restore item"
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                )
-              )}
-              <button
-                onClick={() => setSelectedProductId(null)}
-                className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-850 rounded-lg transition-colors"
-              >
-                <X size={16} />
-              </button>
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Product Name *</label>
+              <input
+                type="text"
+                name="name"
+                required
+                placeholder="Enterprise Laptop 15-inch"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              />
             </div>
           </div>
 
-          {/* Details Tabs */}
-          <div className="flex border-b border-zinc-850 bg-zinc-900/40 text-[11px] font-semibold text-zinc-400 font-sans">
-            {(["overview", "pricing"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-3 text-center border-b-2 capitalize transition-colors ${
-                  activeTab === tab
-                    ? "border-teal-400 text-teal-400 bg-zinc-850/20"
-                    : "border-transparent hover:text-zinc-200"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+          <div>
+            <label className="font-semibold text-slate-700 block mb-1">Description</label>
+            <textarea
+              name="description"
+              rows={2}
+              placeholder="High performance developer laptop with 32GB RAM"
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+            />
           </div>
 
-          {/* Details Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-6 text-xs">
-            
-            {/* OVERVIEW TAB */}
-            {activeTab === "overview" && (
-              <div className="space-y-6">
-                
-                {/* Product Info Card */}
-                <div className="space-y-4 bg-zinc-900/45 p-4 rounded-xl border border-zinc-850">
-                  <div className="flex justify-between items-center pb-2 border-b border-zinc-800">
-                    <h3 className="font-bold text-zinc-350">General Specifications</h3>
-                    {canUpdate && selectedProduct.is_active && (
-                      <button
-                        onClick={() => setIsEditModalOpen(true)}
-                        className="p-1 text-zinc-500 hover:text-teal-400 rounded transition-colors"
-                      >
-                        <Edit2 size={12} />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-y-3.5 gap-x-2">
-                    <div>
-                      <div className="text-[10px] text-zinc-550 font-semibold mb-0.5">Product SKU</div>
-                      <div className="text-zinc-300 font-mono font-semibold tracking-wide">{selectedProduct.sku}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-zinc-550 font-semibold mb-0.5">Category</div>
-                      <div className="text-zinc-300 font-medium">{selectedProduct.category?.name || "Unclassified"}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-zinc-550 font-semibold mb-0.5">CRM Product Code</div>
-                      <div className="text-zinc-300 font-mono truncate">{selectedProduct.external_crm_id || "Not synced"}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-zinc-550 font-semibold mb-0.5">Catalog Status</div>
-                      <div>
-                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
-                          selectedProduct.is_active ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" : "bg-zinc-850 text-zinc-455 border-zinc-750"
-                        }`}>
-                          {selectedProduct.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Description Card */}
-                <div className="space-y-3 bg-zinc-900/45 p-4 rounded-xl border border-zinc-850">
-                  <h3 className="font-bold text-zinc-350 pb-2 border-b border-zinc-800">Marketing Description</h3>
-                  <p className="text-zinc-450 leading-relaxed font-medium">{selectedProduct.description || "No description provided for this product SKU."}</p>
-                </div>
-
-              </div>
-            )}
-
-            {/* PRICING TAB */}
-            {activeTab === "pricing" && (
-              <div className="space-y-6">
-                
-                {/* Base List Price Card */}
-                <div className="bg-zinc-900/45 p-4 rounded-xl border border-zinc-850 space-y-3.5">
-                  <h3 className="font-bold text-zinc-350 pb-2 border-b border-zinc-800">Standard Pricing</h3>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center bg-zinc-950 border border-zinc-850 p-3 rounded-lg">
-                      <div>
-                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Base Unit Price</div>
-                        <div className="text-[10px] text-zinc-600">Standard selling list price</div>
-                      </div>
-                      <div className="text-base font-black text-zinc-250">
-                        ${selectedProduct.base_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between items-center bg-zinc-950 border border-zinc-850 p-3 rounded-lg">
-                      <div>
-                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Billing Type</div>
-                        <div className="text-[10px] text-zinc-600">Product charge model</div>
-                      </div>
-                      <div className="text-xs font-bold text-zinc-300 bg-zinc-900 px-2 py-1 rounded border border-zinc-805 uppercase font-mono">
-                        {selectedProduct.billing_type === "MRC" ? "MRC (Recurring)" : selectedProduct.billing_type === "NRC" ? "NRC (One-time)" : "Usage (Consump.)"}
-                      </div>
-                    </div>
-
-                    {canViewCost && (
-                      <div className="flex justify-between items-center bg-zinc-950 border border-zinc-850 p-3 rounded-lg">
-                        <div>
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Product Cost</div>
-                          <div className="text-[10px] text-zinc-600">Sensitive manufacturing cost</div>
-                        </div>
-                        <div className="text-base font-black text-zinc-350">
-                          {selCostNum !== null ? (
-                            <span>${selCostNum.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {canViewMargin && (
-                      <div className="flex justify-between items-center bg-zinc-950 border border-zinc-850 p-3 rounded-lg">
-                        <div>
-                          <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Gross Margin</div>
-                          <div className="text-[10px] text-zinc-600">Computed gross profit</div>
-                        </div>
-                        <div className="text-right">
-                          <div className={`text-base font-black ${
-                            selMarginPercentNum !== null && selMarginPercentNum < 0 
-                              ? "text-red-400" 
-                              : "text-teal-400"
-                          }`}>
-                            {selMarginPercentNum !== null ? (
-                              `${selMarginPercentNum.toFixed(2)}%`
-                            ) : (
-                              "N/A"
-                            )}
-                          </div>
-                          {selMarginAmtNum !== null && (
-                            <div className="text-[10px] text-zinc-550 font-bold">
-                              {selMarginAmtNum < 0 ? "-" : ""}${Math.abs(selMarginAmtNum).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Price Book Custom Entries */}
-                <div className="bg-zinc-900/45 p-4 rounded-xl border border-zinc-850 space-y-4">
-                  <h3 className="font-bold text-zinc-350 pb-2 border-b border-zinc-800">Price Book Custom Mappings</h3>
-                  
-                  <div className="space-y-2.5">
-                    {priceBooks.length > 0 ? (
-                      priceBooks.map((pb) => {
-                        const customEntry = pb.entries?.find((e) => e.product_id === selectedProduct.id);
-                        return (
-                          <div key={pb.id} className="flex justify-between items-center p-2.5 bg-zinc-950/70 border border-zinc-850/60 rounded-lg">
-                            <div>
-                              <div className="font-bold text-zinc-350">{pb.name}</div>
-                              <span className="text-[9px] text-zinc-555 font-bold uppercase tracking-wider">{pb.is_standard ? "Standard Price Book" : "Custom Catalog"}</span>
-                            </div>
-                            <div className="text-zinc-200 font-black">
-                              {customEntry ? (
-                                `$${customEntry.custom_price.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                              ) : (
-                                <span className="text-zinc-600 font-semibold italic text-[11px]">Inherit Base List</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="text-center py-6 text-zinc-650 font-medium">No active price books found.</div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
-
-      {/* ─── MODAL: CREATE CATALOG PRODUCT ─── */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-850 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center pb-2 border-b border-zinc-850">
-              <h2 className="text-base font-bold text-zinc-100 flex items-center gap-1.5">
-                <Plus className="text-teal-400" size={18} />
-                <span>Onboard New Catalog SKU</span>
-              </h2>
-              <button
-                onClick={() => setIsCreateModalOpen(false)}
-                className="p-1 text-zinc-550 hover:text-zinc-150 hover:bg-zinc-800 rounded transition-colors"
-              >
-                <X size={16} />
-              </button>
+          <div className="grid grid-cols-3 gap-3.5">
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Base Price *</label>
+              <input
+                type="number"
+                step="0.01"
+                name="base_price"
+                required
+                placeholder="1299.00"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              />
             </div>
-
-            <form onSubmit={handleCreateProductSubmit} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Product SKU *</label>
-                  <input
-                    type="text"
-                    name="sku"
-                    required
-                    placeholder="e.g. LAP-DL7440"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none focus:border-zinc-750 font-mono text-[11px]"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Marketing Name *</label>
-                  <input
-                    type="text"
-                    name="name"
-                    required
-                    placeholder="e.g. Dell Latitude 7440"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-zinc-400">Marketing Description</label>
-                <textarea
-                  name="description"
-                  placeholder="Summarize product specifications..."
-                  className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none min-h-[60px]"
+            {canManageCost && (
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Unit Cost</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="cost_price"
+                  placeholder="850.00"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Base Price *</label>
-                  <input
-                    type="number"
-                    name="base_price"
-                    step="0.01"
-                    min="0"
-                    required
-                    placeholder="1299.00"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Product Cost</label>
-                  <input
-                    type="number"
-                    name="cost_price"
-                    step="0.01"
-                    min="0"
-                    disabled={!canManageCost}
-                    placeholder={canManageCost ? "800.00" : "Hidden"}
-                    className={`w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none ${!canManageCost ? "cursor-not-allowed opacity-50" : ""}`}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Billing Type *</label>
-                  <select
-                    name="billing_type"
-                    required
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="MRC">Monthly Recurring (MRC)</option>
-                    <option value="NRC">Non-Recurring (NRC)</option>
-                    <option value="USAGE">Usage-Based (Usage)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Category Taxonomy</label>
-                  <select
-                    name="category_id"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="">No Category</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">CRM Product Code</label>
-                  <input
-                    type="text"
-                    name="external_crm_id"
-                    placeholder="e.g. 01t5G..."
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none font-mono text-[11px]"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Initial Status</label>
-                  <select
-                    name="is_active"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="true">Active (Publish immediately)</option>
-                    <option value="false">Inactive (Draft)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2.5 pt-4 border-t border-zinc-850">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-750"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-teal-500 text-zinc-950 px-5 py-2 rounded-lg font-bold hover:bg-teal-400"
-                >
-                  Onboard SKU
-                </button>
-              </div>
-            </form>
+            )}
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Billing Type</label>
+              <select
+                name="billing_type"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="ONE_TIME">One Time (NRC)</option>
+                <option value="RECURRING">Recurring (MRC)</option>
+              </select>
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* ─── MODAL: EDIT CATALOG PRODUCT ─── */}
+          <div className="grid grid-cols-2 gap-3.5">
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Category</label>
+              <select
+                name="category_id"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">No Category</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Product Type</label>
+              <select
+                name="type"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="STANDALONE">Standalone</option>
+                <option value="BUNDLE">Bundle Parent</option>
+                <option value="COMPONENT">Component</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+            <Button variant="secondary" onClick={() => setIsCreateModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" isLoading={createProductMutation.isPending}>
+              Create Product
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ─── MODAL: EDIT PRODUCT ─── */}
       {isEditModalOpen && selectedProduct && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-850 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center pb-2 border-b border-zinc-850">
-              <h2 className="text-base font-bold text-zinc-100 flex items-center gap-1.5">
-                <Edit2 className="text-zinc-500" size={16} />
-                <span>Modify Catalog SKU</span>
-              </h2>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-1 text-zinc-550 hover:text-zinc-150 hover:bg-zinc-800 rounded transition-colors"
-              >
-                <X size={16} />
-              </button>
+        <Modal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          title={`Edit Product: ${selectedProduct.sku}`}
+          maxWidth="lg"
+        >
+          <form onSubmit={handleEditProduct} className="space-y-3.5 text-xs">
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Product Name *</label>
+              <input
+                type="text"
+                name="name"
+                defaultValue={selectedProduct.name}
+                required
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              />
             </div>
-
-            <form onSubmit={handleEditProductSubmit} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Product SKU *</label>
-                  <input
-                    type="text"
-                    name="sku"
-                    defaultValue={selectedProduct.sku}
-                    required
-                    placeholder="e.g. LAP-DL7440"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none font-mono text-[11px]"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Marketing Name *</label>
-                  <input
-                    type="text"
-                    name="name"
-                    defaultValue={selectedProduct.name}
-                    required
-                    placeholder="e.g. Dell Latitude 7440"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-zinc-400">Marketing Description</label>
-                <textarea
-                  name="description"
-                  defaultValue={selectedProduct.description || ""}
-                  placeholder="Summarize product specifications..."
-                  className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none min-h-[60px]"
+            <div>
+              <label className="font-semibold text-slate-700 block mb-1">Description</label>
+              <textarea
+                name="description"
+                defaultValue={selectedProduct.description || ""}
+                rows={2}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3.5">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Base Price *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="base_price"
+                  defaultValue={selectedProduct.base_price}
+                  required
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Base Price *</label>
+              {canManageCost && (
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">Unit Cost</label>
                   <input
                     type="number"
-                    name="base_price"
                     step="0.01"
-                    min="0"
-                    defaultValue={selectedProduct.base_price}
-                    required
-                    placeholder="1299.00"
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Product Cost</label>
-                  <input
-                    type="number"
                     name="cost_price"
-                    step="0.01"
-                    min="0"
-                    defaultValue={selectedProduct.cost_price ?? ""}
-                    disabled={!canManageCost}
-                    placeholder={canManageCost ? "800.00" : "Hidden"}
-                    className={`w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none ${!canManageCost ? "cursor-not-allowed opacity-50" : ""}`}
+                    defaultValue={selectedProduct.cost_price || ""}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Billing Type *</label>
-                  <select
-                    name="billing_type"
-                    defaultValue={selectedProduct.billing_type}
-                    required
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="MRC">Monthly Recurring (MRC)</option>
-                    <option value="NRC">Non-Recurring (NRC)</option>
-                    <option value="USAGE">Usage-Based (Usage)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Category Taxonomy</label>
-                  <select
-                    name="category_id"
-                    defaultValue={selectedProduct.category_id || ""}
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="">No Category</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">CRM Product Code</label>
-                  <input
-                    type="text"
-                    name="external_crm_id"
-                    defaultValue={selectedProduct.external_crm_id ?? ""}
-                    placeholder="e.g. 01t5G..."
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none font-mono text-[11px]"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-zinc-400">Initial Status</label>
-                  <select
-                    name="is_active"
-                    defaultValue={selectedProduct.is_active ? "true" : "false"}
-                    className="w-full p-2 bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 focus:outline-none"
-                  >
-                    <option value="true">Active (Publish)</option>
-                    <option value="false">Inactive (Draft/Archived)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2.5 pt-4 border-t border-zinc-850">
-                <button
-                  type="button"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-750"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-teal-500 text-zinc-955 px-5 py-2 rounded-lg font-bold hover:bg-teal-400"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2.5 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" type="submit" isLoading={editProductMutation.isPending}>
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
-      {/* ─── MODAL: EXCEL PRODUCT IMPORT ─── */}
+      {/* ─── MODAL: EXCEL IMPORT ─── */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-850 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 overflow-hidden max-h-[85vh] flex flex-col">
-            
-            <div className="flex justify-between items-center pb-2 border-b border-zinc-850 shrink-0">
-              <h2 className="text-base font-bold text-zinc-100 flex items-center gap-1.5">
-                <Upload className="text-teal-400" size={18} />
-                <span>Import Products</span>
-              </h2>
-              <button
-                onClick={() => setIsImportModalOpen(false)}
-                className="p-1 text-zinc-550 hover:text-zinc-150 hover:bg-zinc-800 rounded transition-colors"
-              >
-                <X size={16} />
-              </button>
+        <Modal
+          isOpen={isImportModalOpen}
+          onClose={() => {
+            setIsImportModalOpen(false);
+            setSelectedFile(null);
+            setImportResult(null);
+          }}
+          title="Import Products from Excel"
+          description="Upload an .xlsx or .csv file to batch create products."
+          maxWidth="md"
+        >
+          <div className="space-y-4 text-xs">
+            <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center bg-slate-50">
+              <Upload size={24} className="mx-auto text-slate-400 mb-2" />
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                className="text-xs text-slate-500 file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+              />
             </div>
-
-            {/* Main Area */}
-            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
-              
-              {!importResult ? (
-                // File Selection Form
-                <div className="space-y-4 text-xs">
-                  <div className="border-2 border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-950 p-6 rounded-xl text-center cursor-pointer transition-colors relative">
-                    <input
-                      type="file"
-                      accept=".xlsx, .xls"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                    <Upload size={24} className="mx-auto text-zinc-500 mb-2" />
-                    <div className="text-zinc-300 font-bold">Select Catalog Excel File</div>
-                    <p className="text-[10px] text-zinc-600 mt-1">Accepts .xlsx or .xls spreadsheets only</p>
-                  </div>
-
-                  {selectedFile && (
-                    <div className="bg-zinc-950 border border-zinc-850 p-3 rounded-lg flex items-center justify-between">
-                      <div>
-                        <div className="font-bold text-zinc-250">{selectedFile.name}</div>
-                        <div className="text-[10px] text-zinc-550 mt-0.5">Size: {(selectedFile.size / 1024).toFixed(1)} KB</div>
-                      </div>
-                      <button
-                        onClick={() => setSelectedFile(null)}
-                        className="text-zinc-500 hover:text-zinc-300"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-
-                  {importProductsMutation.isPending && (
-                    <div className="flex items-center justify-center gap-2 py-4 text-teal-400 font-bold">
-                      <RefreshCw className="animate-spin" size={16} />
-                      <span>Uploading and parsing spreadsheet...</span>
-                    </div>
-                  )}
-
-                  {importProductsMutation.isError && (
-                    <div className="bg-red-955/20 border border-red-900/40 p-3 rounded-lg text-red-400 flex items-start gap-2">
-                      <AlertCircle className="shrink-0 mt-0.5" size={14} />
-                      <div>
-                        <div className="font-bold">Upload Failed</div>
-                        <div className="text-[10px] mt-0.5">{(importProductsMutation.error as any)?.detail || "Check spreadsheet column structure and file format."}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                // Import Results View
-                <div className="space-y-4 text-xs">
-                  <div className="bg-zinc-950 border border-zinc-850 p-4 rounded-xl space-y-3.5">
-                    <h3 className="font-bold text-zinc-250 text-sm">Import Summary</h3>
-                    
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="bg-zinc-900 p-2.5 rounded border border-zinc-800">
-                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Total Rows</div>
-                        <div className="text-lg font-black text-zinc-200 mt-1">{importResult.total_rows}</div>
-                      </div>
-                      <div className="bg-zinc-900 p-2.5 rounded border border-zinc-800">
-                        <div className="text-[10px] text-teal-500 font-bold uppercase tracking-wider">Imported</div>
-                        <div className="text-lg font-black text-teal-400 mt-1">{importResult.imported_count}</div>
-                      </div>
-                      <div className="bg-zinc-900 p-2.5 rounded border border-zinc-800">
-                        <div className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Failed</div>
-                        <div className="text-lg font-black text-red-400 mt-1">{importResult.failed_count}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {importResult.errors.length > 0 && (
-                    <div className="space-y-2 shrink-0">
-                      <h4 className="font-bold text-zinc-350 pl-0.5">Validation Errors ({importResult.errors.length})</h4>
-                      <div className="border border-zinc-850 rounded-lg overflow-hidden max-h-[180px] overflow-y-auto">
-                        <table className="w-full text-left text-[11px]">
-                          <thead>
-                            <tr className="bg-zinc-950 text-zinc-550 border-b border-zinc-850 font-bold uppercase tracking-wider text-[9px]">
-                              <th className="px-3 py-1.5 w-[50px] text-center">Row</th>
-                              <th className="px-3 py-1.5 w-[120px]">SKU</th>
-                              <th className="px-3 py-1.5">Error</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-850 bg-zinc-900/40 text-zinc-400 font-medium">
-                            {importResult.errors.map((err, i) => (
-                              <tr key={i} className="hover:bg-zinc-900/30">
-                                <td className="px-3 py-1.5 text-center text-zinc-500">{err.row}</td>
-                                <td className="px-3 py-1.5 font-mono text-[10px]">{err.sku || "—"}</td>
-                                <td className="px-3 py-1.5 text-red-400">{err.error}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Footer buttons */}
-            <div className="flex justify-end gap-2.5 pt-4 border-t border-zinc-850 shrink-0">
-              {!importResult ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsImportModalOpen(false)}
-                    className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-750 text-xs"
-                    disabled={importProductsMutation.isPending}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={triggerUpload}
-                    className="bg-teal-500 text-zinc-955 px-5 py-2 rounded-lg font-bold hover:bg-teal-400 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={!selectedFile || importProductsMutation.isPending}
-                  >
-                    Upload File
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsImportModalOpen(false);
-                    setImportResult(null);
-                    setSelectedFile(null);
-                  }}
-                  className="bg-teal-500 text-zinc-955 px-5 py-2 rounded-lg font-bold hover:bg-teal-400 text-xs"
-                >
-                  Close Results
-                </button>
-              )}
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* ─── CONFIRMATION MODAL: DEACTIVATE PRODUCT ─── */}
-      {archiveConfirmId !== null && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-850 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
-            <h2 className="text-base font-bold text-zinc-100">Deactivate Catalog SKU?</h2>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Deactivating this SKU prevents it from being added to new configuration blueprints and quotes. Existing quote history reference configurations will remain intact.
-            </p>
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setArchiveConfirmId(null)}
-                className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-750 text-xs transition-colors"
+            {importResult && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800">
+                <span className="font-bold">Import Complete:</span> {importResult.imported_count} imported,{" "}
+                {importResult.failed_count} errors.
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setIsImportModalOpen(false)}>
+                Close
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!selectedFile || importProductsMutation.isPending}
+                isLoading={importProductsMutation.isPending}
+                onClick={() => selectedFile && importProductsMutation.mutate(selectedFile)}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => archiveProductMutation.mutate(archiveConfirmId)}
-                className="bg-red-500 text-zinc-950 px-5 py-2 rounded-lg font-bold hover:bg-red-400 text-xs transition-colors"
-              >
-                Deactivate Product
-              </button>
+                Upload & Import
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
-
-      {/* ─── CONFIRMATION MODAL: RESTORE PRODUCT ─── */}
-      {restoreConfirmId !== null && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-850 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
-            <h2 className="text-base font-bold text-zinc-100">Restore Catalog SKU?</h2>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Restoring this SKU will republish it immediately in the active product catalogs, making it available for config building and quoting calculations.
-            </p>
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setRestoreConfirmId(null)}
-                className="bg-zinc-800 text-zinc-300 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-750 text-xs transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => restoreProductMutation.mutate(restoreConfirmId)}
-                className="bg-teal-500 text-zinc-955 px-5 py-2 rounded-lg font-bold hover:bg-teal-400 text-xs transition-colors"
-              >
-                Restore Product
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

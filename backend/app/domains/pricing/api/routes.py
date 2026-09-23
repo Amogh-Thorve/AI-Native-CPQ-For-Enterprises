@@ -22,9 +22,17 @@ async def calculate_price(
 ):
     """
     Evaluate pricing for a product line item based on selected method and quantity.
+    Enforces server-side validation, lifecycle status, effective dates, and sensitive data masking.
     """
+    user_permissions = {p.name for r in current_user.roles for p in r.permissions}
+    role_name = current_user.roles[0].name if current_user.roles else "Unknown"
     service = PricingApplicationService(db)
-    return await service.calculate_price(request)
+    return await service.calculate_price(
+        request=request,
+        user_permissions=user_permissions,
+        user_id=current_user.id,
+        user_role=role_name
+    )
 
 @router.get("/products", response_model=List[EnrichedProductRead], status_code=status.HTTP_200_OK)
 async def list_products_with_pricing(
@@ -65,10 +73,24 @@ async def configure_product_pricing(
     """
     service = PricingApplicationService(db)
     old_setting = await service.setting_repo.get_by_product_id(product_id)
-    before_val = {"pricing_method": old_setting.pricing_method, "markup_percent": str(old_setting.markup_percent)} if old_setting else None
+    before_val = {
+        "pricing_method": old_setting.pricing_method,
+        "markup_percent": str(old_setting.markup_percent),
+        "status": old_setting.status,
+        "effective_from": str(old_setting.effective_from) if old_setting.effective_from else None,
+        "effective_until": str(old_setting.effective_until) if old_setting.effective_until else None,
+        "discount_percent": str(old_setting.discount_percent) if old_setting.discount_percent is not None else "0.00"
+    } if old_setting else None
     
     updated_setting = await service.update_pricing_setting(product_id, schema)
-    after_val = {"pricing_method": updated_setting.pricing_method, "markup_percent": str(updated_setting.markup_percent)}
+    after_val = {
+        "pricing_method": updated_setting.pricing_method,
+        "markup_percent": str(updated_setting.markup_percent),
+        "status": updated_setting.status,
+        "effective_from": str(updated_setting.effective_from) if updated_setting.effective_from else None,
+        "effective_until": str(updated_setting.effective_until) if updated_setting.effective_until else None,
+        "discount_percent": str(updated_setting.discount_percent) if updated_setting.discount_percent is not None else "0.00"
+    }
 
     # Log audit
     audit_repo = PricingAuditLogRepository(db)
@@ -81,6 +103,68 @@ async def configure_product_pricing(
         product_id=product_id,
         before_value=before_val,
         after_value=after_val
+    )
+    await db.commit()
+    return updated_setting
+
+@router.post("/products/{product_id}/configuration/activate", response_model=PricingSettingRead, status_code=status.HTTP_200_OK)
+@router.patch("/products/{product_id}/configuration/activate", response_model=PricingSettingRead, status_code=status.HTTP_200_OK)
+async def activate_product_pricing_configuration(
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("pricing.config.update"))
+):
+    """
+    Activate pricing configuration for a catalog product.
+    """
+    service = PricingApplicationService(db)
+    old_setting = await service.setting_repo.get_by_product_id(product_id)
+    before_val = {"status": old_setting.status} if old_setting else None
+    
+    updated_setting = await service.activate_pricing_setting(product_id)
+    
+    # Log audit
+    audit_repo = PricingAuditLogRepository(db)
+    role_name = current_user.roles[0].name if current_user.roles else "Unknown"
+    await audit_repo.log(
+        user_id=current_user.id,
+        user_role=role_name,
+        action="PRICING_CONFIGURATION_ACTIVATED",
+        pricing_config_id=updated_setting.id,
+        product_id=product_id,
+        before_value=before_val,
+        after_value={"status": "ACTIVE"}
+    )
+    await db.commit()
+    return updated_setting
+
+@router.post("/products/{product_id}/configuration/deactivate", response_model=PricingSettingRead, status_code=status.HTTP_200_OK)
+@router.patch("/products/{product_id}/configuration/deactivate", response_model=PricingSettingRead, status_code=status.HTTP_200_OK)
+async def deactivate_product_pricing_configuration(
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("pricing.config.deactivate"))
+):
+    """
+    Deactivate pricing configuration for a catalog product.
+    """
+    service = PricingApplicationService(db)
+    old_setting = await service.setting_repo.get_by_product_id(product_id)
+    before_val = {"status": old_setting.status} if old_setting else None
+    
+    updated_setting = await service.deactivate_pricing_setting(product_id)
+    
+    # Log audit
+    audit_repo = PricingAuditLogRepository(db)
+    role_name = current_user.roles[0].name if current_user.roles else "Unknown"
+    await audit_repo.log(
+        user_id=current_user.id,
+        user_role=role_name,
+        action="PRICING_CONFIGURATION_DEACTIVATED",
+        pricing_config_id=updated_setting.id,
+        product_id=product_id,
+        before_value=before_val,
+        after_value={"status": "INACTIVE"}
     )
     await db.commit()
     return updated_setting

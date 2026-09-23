@@ -8,6 +8,8 @@ class PricingRuleBase(BaseModel):
     is_active: bool = True
     conditions: Dict[str, Any] = {}
     actions: Dict[str, Any] = {}
+    description: Optional[str] = None
+    status: Optional[str] = "ACTIVE"
 
 class PricingRuleCreate(PricingRuleBase):
     pass
@@ -18,12 +20,13 @@ class PricingRuleUpdate(BaseModel):
     is_active: Optional[bool] = None
     conditions: Optional[Dict[str, Any]] = None
     actions: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
 
 class PricingRuleRead(PricingRuleBase):
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class CalculatePriceRequest(BaseModel):
     product_id: int

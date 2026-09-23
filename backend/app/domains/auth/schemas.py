@@ -111,7 +111,9 @@ class TokenPayload(BaseModel):
     exp: Optional[int] = None
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Use str instead of EmailStr so dev/local domains (e.g. @cpq.local) are accepted.
+    # Basic format check: must contain exactly one @ with non-empty local and domain parts.
+    email: str = Field(..., min_length=3, pattern=r"^[^@]+@[^@]+$")
     password: str
 
 class PasswordChangeRequest(BaseModel):

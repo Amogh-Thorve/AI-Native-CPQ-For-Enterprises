@@ -21,9 +21,20 @@ def validate_tiers(tiers_list: List[Any]) -> List[Any]:
     if not tiers_list:
         raise DomainValidationError("At least one tier configuration must be provided.")
         
+    # Filter active tiers if is_active attribute exists
+    active_tiers = [t for t in tiers_list if getattr(t, "is_active", True) is not False]
+    if not active_tiers:
+        raise DomainValidationError("At least one active tier configuration must be provided.")
+
     # Sort by min_quantity
-    sorted_tiers = sorted(tiers_list, key=lambda t: t.min_quantity)
+    sorted_tiers = sorted(active_tiers, key=lambda t: (t.min_quantity, getattr(t, "display_order", 1)))
     
+    seen_mins = set()
+    for t in sorted_tiers:
+        if t.min_quantity in seen_mins:
+            raise DomainValidationError(f"Overlapping or duplicate tiers detected at quantity {t.min_quantity}.")
+        seen_mins.add(t.min_quantity)
+
     if sorted_tiers[0].min_quantity != 1:
         raise DomainValidationError("Tier configurations must start at quantity 1.")
         
@@ -77,7 +88,13 @@ class StandardPricingStrategy(PricingStrategy):
             "final_unit_price": base_unit_price,
             "total_price": total_price,
             "calculation_breakdown": [
-                f"Standard Pricing Applied: {base_unit_price} x {quantity} = {total_price}"
+                {
+                    "description": f"Standard Pricing Applied: {base_unit_price} x {quantity} = {total_price}",
+                    "tier": "Standard",
+                    "quantity": quantity,
+                    "unit_price": f"{base_unit_price:.2f}",
+                    "amount": f"{total_price:.2f}"
+                }
             ]
         }
 
@@ -92,7 +109,7 @@ class LineDiscountPricingStrategy(PricingStrategy):
         **kwargs: Any
     ) -> Dict[str, Any]:
         if discount_percent < Decimal("0.00") or discount_percent > Decimal("100.00"):
-            raise DomainValidationError("Discount percentage must be between 0 and 100.")
+            raise DomainValidationError("Discount must be between 0 and 100.")
             
         base_unit_price = base_price.quantize(Decimal("0.01"))
         discount_amount = (base_unit_price * discount_percent / Decimal("100")).quantize(Decimal("0.01"))
@@ -106,11 +123,13 @@ class LineDiscountPricingStrategy(PricingStrategy):
             "final_unit_price": final_unit_price,
             "total_price": total_price,
             "calculation_breakdown": [
-                f"Base Price: {base_unit_price}",
-                f"Discount Percentage: {discount_percent}%",
-                f"Discount Amount Per Unit: {discount_amount}",
-                f"Final Unit Price: {final_unit_price}",
-                f"Total Price: {final_unit_price} x {quantity} = {total_price}"
+                {
+                    "description": f"Line discount {discount_percent}% applied (Base: {base_unit_price}, Discount: {discount_amount})",
+                    "tier": "Discount",
+                    "quantity": quantity,
+                    "unit_price": f"{final_unit_price:.2f}",
+                    "amount": f"{total_price:.2f}"
+                }
             ]
         }
 
@@ -142,7 +161,7 @@ class TieredPricingStrategy(PricingStrategy):
                     break
             
             if not matching_tier:
-                raise DomainValidationError(f"No pricing tier found matching quantity {quantity}.")
+                raise DomainValidationError(f"No applicable pricing tier for quantity {quantity}.")
             
             tier_price = Decimal(str(matching_tier.price)).quantize(Decimal("0.01"))
             total_price = (tier_price * quantity).quantize(Decimal("0.01"))
@@ -150,6 +169,7 @@ class TieredPricingStrategy(PricingStrategy):
             
             max_str = str(matching_tier.max_quantity) if matching_tier.max_quantity is not None else "unlimited"
             calculation_breakdown.append({
+                "description": f"Volume tier {matching_tier.min_quantity}-{max_str}",
                 "tier": f"{matching_tier.min_quantity}-{max_str}",
                 "quantity": quantity,
                 "unit_price": f"{tier_price:.2f}",
@@ -181,6 +201,7 @@ class TieredPricingStrategy(PricingStrategy):
                     
                     max_str = str(tier_max) if tier_max is not None else "unlimited"
                     calculation_breakdown.append({
+                        "description": f"Cumulative tier {tier_min}-{max_str}",
                         "tier": f"{tier_min}-{max_str}",
                         "quantity": qty_in_tier,
                         "unit_price": f"{tier_price:.2f}",
@@ -188,7 +209,7 @@ class TieredPricingStrategy(PricingStrategy):
                     })
 
             if remaining_qty > 0:
-                raise DomainValidationError(f"Tier configuration did not completely cover quantity {quantity}.")
+                raise DomainValidationError(f"No applicable pricing tier for remaining quantity {remaining_qty}.")
                 
             final_unit_price = (total_price / quantity).quantize(Decimal("0.01"))
             
@@ -226,7 +247,7 @@ class BlockPricingStrategy(PricingStrategy):
                 break
                 
         if not matching_tier:
-            raise DomainValidationError(f"No pricing tier found matching quantity {quantity}.")
+            raise DomainValidationError(f"No applicable pricing tier for quantity {quantity}.")
             
         block_price = Decimal(str(matching_tier.price)).quantize(Decimal("0.01"))
         total_price = block_price
@@ -234,6 +255,7 @@ class BlockPricingStrategy(PricingStrategy):
         
         max_str = str(matching_tier.max_quantity) if matching_tier.max_quantity is not None else "unlimited"
         calculation_breakdown = [{
+            "description": f"Block tier {matching_tier.min_quantity}-{max_str}",
             "tier": f"{matching_tier.min_quantity}-{max_str}",
             "quantity": quantity,
             "unit_price": f"{final_unit_price:.2f}",
@@ -280,10 +302,13 @@ class CostPlusMarkupPricingStrategy(PricingStrategy):
             "final_unit_price": selling_unit_price,
             "total_price": total_price,
             "calculation_breakdown": [
-                f"Cost: {cost_dec}",
-                f"Markup Percentage: {markup_percent}%",
-                f"Calculated Unit Price: {cost_dec} * {markup_factor:.4f} = {selling_unit_price}",
-                f"Total Price: {selling_unit_price} x {quantity} = {total_price}"
+                {
+                    "description": f"Cost + Markup Applied: Cost {cost_dec} + {markup_percent}% markup = {selling_unit_price}",
+                    "tier": "Cost+Markup",
+                    "quantity": quantity,
+                    "unit_price": f"{selling_unit_price:.2f}",
+                    "amount": f"{total_price:.2f}"
+                }
             ]
         }
 

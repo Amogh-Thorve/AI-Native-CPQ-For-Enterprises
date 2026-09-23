@@ -27,7 +27,7 @@ class PricingEngine:
         """
         # Validate quantity
         if quantity <= 0:
-            raise DomainValidationError("Quantity must be a positive integer greater than zero.")
+            raise DomainValidationError("Invalid quantity.")
             
         # Get strategy from registry
         strategy = get_pricing_strategy(pricing_method)
@@ -43,6 +43,22 @@ class PricingEngine:
             markup_percent=markup_percent
         )
         
+        # Financial Margin Calculations (Decimal arithmetic)
+        unit_cost = cost_price.quantize(Decimal("0.01")) if cost_price is not None else None
+        total_cost = (unit_cost * quantity).quantize(Decimal("0.01")) if unit_cost is not None else None
+        
+        margin_amount = None
+        margin_percentage = None
+        if total_cost is not None:
+            margin_amount = (calc_result["total_price"] - total_cost).quantize(Decimal("0.01"))
+            # Prevent division by zero if selling price is zero
+            if calc_result["total_price"] > Decimal("0.00"):
+                margin_percentage = (
+                    ((calc_result["total_price"] - total_cost) / calc_result["total_price"]) * Decimal("100.00")
+                ).quantize(Decimal("0.01"))
+            else:
+                margin_percentage = None
+
         # Return complete payload
         return {
             "product_id": product_id,
@@ -56,6 +72,10 @@ class PricingEngine:
             "discount_amount": calc_result["discount_amount"],
             "final_unit_price": calc_result["final_unit_price"],
             "total_price": calc_result["total_price"],
+            "unit_cost": unit_cost,
+            "total_cost": total_cost,
+            "margin_amount": margin_amount,
+            "margin_percentage": margin_percentage,
             "currency": currency,
             "calculation_breakdown": calc_result["calculation_breakdown"]
         }

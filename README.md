@@ -27,8 +27,8 @@ A production-quality, modular monolith **Configure, Price, Quote** platform buil
 | 1 | **Authentication & RBAC** | ✅ Complete | ✅ Complete | JWT, roles, forgot/reset password |
 | 2 | **Customer Management** | ✅ Complete | ✅ Complete | Contacts, ownership, RBAC |
 | 3 | **Product Catalog** | ✅ Complete | ✅ Complete | Price books, Excel import, cost & margins |
-| 4 | **Pricing Engine** | 🔲 Planned | 🔲 Planned | Pricing rules, discount calculation |
-| 5 | **Product Configuration** | 🔲 Planned | 🔲 Planned | Configurator rules, validation |
+| 4 | **Pricing Engine** | ✅ Complete | ✅ Complete | 5 methods (Standard, Discount, Tiered Volume/Cumulative, Block, Cost+Markup), lifecycle, effective dates, Decimal math, RBAC masking |
+| 5 | **Product Configuration** | ✅ Complete | ✅ Complete | Attributes, options, constraints, bundles, validation wizard, versioning |
 | 6 | **Quote Builder** | 🔲 Planned | 🔲 Planned | Quote lifecycle, revisions |
 | 7 | **Approval Workflow** | 🔲 Planned | 🔲 Planned | Policies, multi-step approvals |
 | 8 | **PDF Generation** | 🏗️ Scaffold | — | Document generation endpoint |
@@ -256,7 +256,7 @@ All endpoints are prefixed under `/api/v1`. Visit `/docs` for the full interacti
 | **Auth** | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `POST /auth/forgot-password`, `POST /auth/reset-password` |
 | **Customers** | `GET /customers`, `POST /customers`, `GET /customers/{id}`, `PUT /customers/{id}`, `DELETE /customers/{id}`, `POST /customers/{id}/contacts` |
 | **Catalog** | `GET /products`, `POST /products`, `PATCH /products/{id}/archive`, `GET /categories`, `POST /price-books`, `POST /price-books/{id}/entries` |
-| **Pricing** | `POST /pricing/calculate`, `GET /pricing/rules`, `POST /pricing/rules` |
+| **Pricing** | `POST /pricing/calculate`, `GET /pricing/products`, `GET /pricing/products/{id}/configuration`, `POST /pricing/products/{id}/configuration`, `POST /pricing/products/{id}/configuration/activate`, `POST /pricing/products/{id}/configuration/deactivate`, `GET, POST, DELETE /pricing/products/{id}/tiers`, `GET, POST /pricing/rules`, `PUT, DELETE /pricing/rules/{id}` |
 | **Configuration** | `POST /configuration/validate`, `GET /configuration/rules`, `POST /configuration/rules` |
 | **Quotes** | `GET /quotes`, `POST /quotes`, `GET /quotes/{id}`, `PUT /quotes/{id}`, `POST /quotes/{id}/revise` |
 | **Approvals** | `GET /approvals/policies`, `POST /approvals/submit`, `GET /approvals/pending`, `POST /approvals/requests/{id}/decide` |
@@ -267,12 +267,72 @@ All endpoints are prefixed under `/api/v1`. Visit `/docs` for the full interacti
 
 ---
 
+## Enterprise Pricing Engine
+
+The Pricing Engine is a backend-authoritative calculation and governance system designed to separate **what can be sold** (Product Configuration) from **how much it costs** (Pricing Engine).
+
+### Supported Pricing Methods
+
+1. **STANDARD**: Base unit price lookup from product catalog.
+   - Formula: `Unit Price = Product Base Price`, `Total = Unit Price × Quantity`.
+2. **LINE_DISCOUNT**: Percentage-based discount.
+   - Formula: `Discount Amount = Base Price × Discount % / 100`, `Final Unit Price = Base Price - Discount Amount`.
+   - Strict validation: `0 <= Discount <= 100`.
+3. **TIERED (VOLUME & CUMULATIVE)**:
+   - **Volume Mode**: Total quantity determines the single applicable bracket tier; all units use that tier price.
+   - **Cumulative Mode**: Slabs calculated progressively across each quantity tier bracket.
+   - Contiguity validation: Prevents gaps, overlapping tiers, inverted quantities, or duplicate brackets.
+4. **BLOCK**: Fixed price for an entire quantity bracket (not multiplied by quantity).
+5. **COST_PLUS_MARKUP**: Markup on top of catalog cost.
+   - Formula: `Selling Price = Cost × (1 + Markup % / 100)`.
+   - Rejects negative cost or markup.
+
+### Core Financial & Money Handling
+- **Pure Decimal Arithmetic**: Python `Decimal` and PostgreSQL `NUMERIC(12, 2)` throughout to prevent floating-point rounding errors.
+- **Preserved Billing Types**: `MRC` (Monthly Recurring Charge), `NRC` (Non-Recurring Charge), and `USAGE` are preserved across all calculation strategies.
+- **Derived Financial Margins**:
+  - `Margin Amount = Selling Price - Product Cost`
+  - `Margin % = ((Selling Price - Product Cost) / Selling Price) × 100`
+  - Zero Selling Price: Returns `margin_percentage = null` (preventing zero-division errors).
+  - Negative Margins: Permitted and audited when selling price is below cost.
+- **Calculation Waterfall**: Returns a transparent, structured breakdown of each step, applied tier, and intermediate price.
+
+### Lifecycle & Governance
+- **Configuration Lifecycle**: `DRAFT`, `ACTIVE`, `INACTIVE`, `ARCHIVED`. Live calculations reject draft or inactive configurations.
+- **Effective Dating**: `effective_from` and `effective_until` time-windows prevent stale or expired pricing configurations from being used.
+- **Manual Price Overrides**: Requires `pricing.override` permission and a mandatory `override_reason`. Logged as `PRICING_OVERRIDE_USED` in `pricing_audit_logs`.
+- **Sensitive Data Isolation (RBAC Masking)**:
+  - `pricing.cost.view`: Required to see `unit_cost` and `total_cost`.
+  - `pricing.margin.view`: Required to see `margin_amount` and `margin_percentage`.
+  - Missing permissions automatically mask fields as `null` on the backend API layer.
+
+---
+
+## Testing
+
+Comprehensive test suites validate domain calculations, edge cases, RBAC, API routes, and persistence across server restarts.
+
+```bash
+# Run Pricing Engine domain tests (30 tests)
+python -m pytest backend/app/domains/pricing/tests/ -v
+
+# Run entire platform regression test suite (39 tests)
+python -m pytest -W ignore -q
+
+# Run frontend production build validation
+cd frontend && npm run build
+```
+
+---
+
 ## Architecture & Design Principles
 
 - **Domain-Driven Design (DDD)** — 11 isolated business domains, each owning its own models, schemas, services, and routes
 - **Modular Monolith** — single FastAPI runtime with strict boundary enforcement; no direct cross-domain model imports
+- **Backend-Authoritative Pricing** — frontend only requests calculations and displays results; all calculations use Decimal precision
 - **No business logic in routes** — routes delegate entirely to services; services delegate to repositories
 - **Interface abstraction** — services and repositories inherit from protocols/ABCs for testability and replaceability
 - **Async-first** — SQLAlchemy async engine and async FastAPI handlers throughout
 - **Type safety** — Pydantic v2 schemas on all API inputs and outputs
 - **Centralized error handling** — all exceptions caught at the app level with consistent JSON error responses
+
