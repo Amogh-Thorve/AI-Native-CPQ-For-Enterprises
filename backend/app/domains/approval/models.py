@@ -38,6 +38,10 @@ class ApprovalPolicy(Base):
     # Threshold that triggers this policy (e.g. if quote discount >= threshold)
     discount_threshold: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     
+    # DISCOUNT: triggers when discount >= discount_threshold. MARGIN: triggers when blended margin < margin_threshold.
+    policy_type: Mapped[str] = mapped_column(String(20), default="DISCOUNT", server_default="DISCOUNT", nullable=False)
+    margin_threshold: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+
     # UserRole (e.g. MANAGER, EXECUTIVE, ADMINISTRATOR) required to sign off on this policy
     role_required: Mapped[str] = mapped_column(String(50), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -142,6 +146,8 @@ class ApprovalRequest(Base):
         if self.comments:
             return self.comments
         if self.policy:
+            if getattr(self.policy, "policy_type", "DISCOUNT") == "MARGIN":
+                return f"{self.policy.name} (margin below {float(self.policy.margin_threshold or 0):.0f}%)"
             return f"{self.policy.name} ({float(self.policy.discount_threshold):.0f}% discount trigger)"
         return "Discount threshold override review"
 

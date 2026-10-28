@@ -36,6 +36,29 @@ A production-quality, modular monolith **Configure, Price, Quote** platform buil
 | 10 | **AI Copilot** | ✅ Complete | ✅ Complete | Gemini (GEMINI_API_KEY) grounded in DB facts, data-driven fallback |
 | 11 | **Integrations** | ✅ Complete | ✅ Complete | Salesforce (OAuth/token) opportunity sync, CSV/XLSX import wizard, signed webhooks |
 | 12 | **Analytics Dashboard** | ✅ Complete | ✅ Complete | Live KPIs from quotes |
+| 13 | **Tax** | ✅ Complete | ✅ Complete | Rates matched by customer address (country/region/default), applied automatically |
+| 14 | **Orders** | ✅ Complete | ✅ Complete | Quote-to-order booking from accepted quotes, status workflow |
+| 15 | **Customer Proposal Link** | ✅ Complete | ✅ Complete | Tokenised public page: view, download PDF, accept/decline online |
+| 16 | **AI-native layer** | ✅ Complete | ✅ Complete | Natural-language quote builder, win-probability and discount guidance, pipeline copilot, add-on suggestions, approver briefs |
+
+### Capability benchmark (Salesforce CPQ / Oracle CPQ / SAP CPQ / Conga / DealHub)
+
+| Capability | Status |
+|---|---|
+| Product catalog, bundles, option rules, price methods (tiered, block, cost-plus) | Yes |
+| Guided configuration with requires/excludes validation | Yes |
+| Quote versioning, expiry, audit trail | Yes |
+| Discount and margin-floor approval policies | Yes (single-level per policy; policies run in parallel) |
+| Tax | Yes (rate table by address; no external tax engine) |
+| PDF proposals, email delivery, customer e-accept link | Yes |
+| Quote-to-order handoff | Yes (no fulfilment/ERP integration) |
+| CRM sync (Salesforce Opportunity), webhooks, CSV/XLSX import | Yes |
+| AI deal intelligence and natural-language quoting | Yes (Gemini optional; data-driven fallback) |
+| Renewals / amendments / subscription co-terming | Not yet |
+| Multi-currency conversion | Not yet |
+| Sequential multi-level approval chains, delegation, SLAs | Not yet |
+| Customer-specific contracted pricing / price-book assignment | Not yet |
+| Digital signature (legal e-sign provider) | Not yet (online acceptance is recorded with name and timestamp) |
 
 ---
 

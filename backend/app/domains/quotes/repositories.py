@@ -219,7 +219,11 @@ class QuoteRepository:
         subtotal = sum((item.total_price for item in items), Decimal("0.00"))
         # If quote has custom discount_amount set, preserve it; otherwise can sum line discounts or keep quote discount
         discount_total = quote.discount_amount or Decimal("0.00")
-        tax = quote.tax_amount or Decimal("0.00")
+        from backend.app.domains.tax.services import resolve_tax_rate, compute_tax
+        rate, label = await resolve_tax_rate(self.db, quote.customer_id)
+        quote.tax_rate_percent, quote.tax_label = rate, label
+        tax = compute_tax(max(subtotal - discount_total, Decimal("0.00")), rate)
+        quote.tax_amount = tax
         grand_total = subtotal - discount_total + tax
         if grand_total < Decimal("0.00"):
             grand_total = Decimal("0.00")

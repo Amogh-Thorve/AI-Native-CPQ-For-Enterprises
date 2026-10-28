@@ -51,8 +51,16 @@ class ApprovalService:
         existing_policy_ids = {r.policy_id for r in existing_requests if r.status in (ApprovalStatus.PENDING, "pending", "PENDING")}
         triggered_requests: List[ApprovalRequest] = []
 
+        margins = [float(it.margin_percentage) for it in (quote.items or []) if it.margin_percentage is not None]
+        quote_margin = float(quote.margin_percentage) if (margins and quote.margin_percentage is not None) else None
+
+        def policy_triggered(policy: ApprovalPolicy) -> bool:
+            if getattr(policy, "policy_type", "DISCOUNT") == "MARGIN":
+                return quote_margin is not None and policy.margin_threshold is not None and quote_margin < float(policy.margin_threshold)
+            return effective_discount >= float(policy.discount_threshold)
+
         for policy in active_policies:
-            if effective_discount >= float(policy.discount_threshold):
+            if policy_triggered(policy):
                 if policy.id not in existing_policy_ids:
                     req = await self.approval_repo.create_request(
                         ApprovalRequestCreate(

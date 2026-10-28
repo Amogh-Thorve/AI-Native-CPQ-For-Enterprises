@@ -1,14 +1,24 @@
 import uuid
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+from typing import Literal, Optional, List
 from datetime import datetime
 from backend.app.domains.approval.models import ApprovalStatus
 
 class ApprovalPolicyBase(BaseModel):
     name: str
-    discount_threshold: float = Field(..., ge=0.0, le=100.0)
+    policy_type: Literal["DISCOUNT", "MARGIN"] = "DISCOUNT"
+    discount_threshold: float = Field(default=0.0, ge=0.0, le=100.0)
+    margin_threshold: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     role_required: str
     is_active: bool = True
+
+    @model_validator(mode="after")
+    def check_threshold(self):
+        if self.policy_type == "MARGIN" and self.margin_threshold is None:
+            raise ValueError("margin_threshold is required for MARGIN policies")
+        if self.policy_type == "DISCOUNT" and self.discount_threshold <= 0:
+            raise ValueError("discount_threshold must be greater than 0 for DISCOUNT policies")
+        return self
 
 class ApprovalPolicyCreate(ApprovalPolicyBase):
     pass
@@ -16,6 +26,7 @@ class ApprovalPolicyCreate(ApprovalPolicyBase):
 class ApprovalPolicyUpdate(BaseModel):
     name: Optional[str] = None
     discount_threshold: Optional[float] = None
+    margin_threshold: Optional[float] = None
     role_required: Optional[str] = None
     is_active: Optional[bool] = None
 

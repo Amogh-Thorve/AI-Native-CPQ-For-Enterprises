@@ -12,6 +12,7 @@ import {
   FileText,
   CheckSquare,
   ArrowRightLeft,
+  Package,
   Settings,
   HelpCircle,
   Bell,
@@ -64,12 +65,14 @@ export default function DashboardLayout({
     { href: "/configuration", label: "Product Config", icon: <Sliders size={17} /> },
     { href: "/pricing", label: "Pricing Engine", icon: <DollarSign size={17} /> },
     { href: "/quotes", label: "Quote Builder", icon: <FileText size={17} /> },
+    { href: "/orders", label: "Orders", icon: <Package size={17} /> },
     { href: "/approvals", label: "Approvals", icon: <CheckSquare size={17} /> },
     { href: "/integrations", label: "Integrations", icon: <ArrowRightLeft size={17} /> },
+    { href: "/copilot", label: "AI Copilot", icon: <Sparkles size={17} /> },
   ];
 
   const bottomLinks = [
-    { href: "/dashboard", label: "Settings", icon: <Settings size={17} /> },
+    { href: "/settings", label: "Settings", icon: <Settings size={17} /> },
     { href: "/dashboard", label: "Help & Support", icon: <HelpCircle size={17} /> },
   ];
 
@@ -193,17 +196,6 @@ export default function DashboardLayout({
               active={false}
             />
           ))}
-
-          {/* AI Copilot Badge */}
-          <div className="pt-2">
-            <div className="flex items-center gap-2.5 p-2 rounded-md bg-canvas border border-hairline text-ink">
-              <Sparkles size={14} className="text-slate-600 shrink-0" />
-              <div className="text-[11px] leading-tight">
-                <span className="font-semibold">AI Copilot</span>
-                <span className="block text-[10px] text-slate-500">Cognitive Pricing</span>
-              </div>
-            </div>
-          </div>
         </div>
       </aside>
 

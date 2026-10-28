@@ -23,6 +23,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { DealInsightsCard } from "../quotes/ai-panels";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Card,
@@ -456,6 +457,9 @@ export default function ApprovalsPage() {
           }
         >
           <div className="space-y-5">
+            {selectedReviewItem.quote_id != null && (
+              <DealInsightsCard quoteId={selectedReviewItem.quote_id} version={String(selectedReviewItem.id)} />
+            )}
             {/* Policy Trigger Banner */}
             <div className="bg-amber-50/80 border border-amber-200/90 rounded-xl p-3.5 flex items-start gap-3">
               <ShieldAlert size={18} className="text-amber-600 shrink-0 mt-0.5" />

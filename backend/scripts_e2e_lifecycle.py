@@ -138,6 +138,78 @@ def main():
     r = c.post(f"{api}/integrations/salesforce/sync-quote/{q['id']}", headers=h)
     check("sync without connection is refused", r.status_code == 422, r.text[:150])
 
+    # ── Tax (scoped to a throw-away country so other quotes are unaffected) ─────────────────────
+    country = f"E2Eland-{tag}"
+    r = c.post(f"{api}/customers/{cust['id']}/addresses", headers=h, json={"line1": "1 Test St", "city": "Testville", "state": "TS", "postal_code": "00001", "country": country, "is_primary": True})
+    check("create address", r.status_code == 201, r.text[:150])
+    r = c.post(f"{api}/tax-rates/", headers=h, json={"name": f"E2E VAT {tag}", "country": country, "rate_percent": "7.5"})
+    check("create tax rate", r.status_code == 201, r.text[:150])
+    tax_id = r.json()["id"]
+    r = c.post(f"{api}/quotes/", headers=h, json={"customer_id": cust["id"], "title": f"E2E taxed {tag}", "items": [{"product_id": prod["id"], "quantity": 2, "discount_percentage": "0"}]})
+    tq = r.json()
+    expected_tax = round(float(tq["subtotal"]) * 0.075, 2)
+    check("tax applied to quote", abs(float(tq["tax_amount"]) - expected_tax) < 0.011 and tq["tax_label"] == f"E2E VAT {tag}", f"tax={tq['tax_amount']} expected={expected_tax}")
+    check("total includes tax", abs(float(tq["total_amount"]) - (float(tq["subtotal"]) + expected_tax)) < 0.011)
+
+    # ── Margin approval policy ──────────────────────────────────────────────────────────────────
+    r = c.post(f"{api}/approvals/policies", headers=h, json={"name": f"E2E margin floor {tag}", "policy_type": "MARGIN", "margin_threshold": 99, "role_required": "Executive"})
+    check("create MARGIN policy", r.status_code == 201, r.text[:150])
+    pol_id = r.json()["id"]
+    r = c.post(f"{api}/quotes/{tq['id']}/submit", headers=h)
+    check("margin policy routes quote to approval", r.status_code == 200 and r.json()["status"] == "SUBMITTED", r.text[:150] if r.status_code != 200 else r.json()["status"])
+    pend = [p for p in c.get(f"{api}/approvals/pending", headers=h).json() if p["quote_id"] == tq["id"]]
+    check("pending request created", len(pend) >= 1)
+    brief = c.get(f"{api}/ai/deal-insights/{tq['id']}", headers=h)
+    check("AI deal insights", brief.status_code == 200 and "narrative" in brief.json(), brief.text[:150])
+    for p in pend:
+        c.post(f"{api}/approvals/requests/{p['id']}/decide", headers=h, json={"status": "APPROVED", "comments": "e2e"})
+    check("deactivate policy", c.delete(f"{api}/approvals/policies/{pol_id}", headers=h).status_code == 204)
+    tq = c.get(f"{api}/quotes/{tq['id']}", headers=h).json()
+    check("taxed quote approved", tq["status"] == "APPROVED", tq["status"])
+
+    # ── Customer share link, public accept, order ───────────────────────────────────────────────
+    c.post(f"{api}/documents/generate", headers=h, json={"quote_id": tq["id"]})
+    r = c.post(f"{api}/quotes/{tq['id']}/share", headers=h)
+    check("create share link", r.status_code == 200 and r.json()["token"], r.text[:150])
+    token = r.json()["token"]
+    pub = httpx.Client(timeout=30)  # no auth header
+    r = pub.get(f"{api}/public/proposals/{token}")
+    check("public proposal view (no auth)", r.status_code == 200 and r.json()["can_respond"] is True and "margin" not in r.text.lower(), r.text[:150])
+    check("public PDF", pub.get(f"{api}/public/proposals/{token}/pdf").content[:4] == b"%PDF")
+    check("accept needs a name", pub.post(f"{api}/public/proposals/{token}/accept", json={"name": ""}).status_code == 422)
+    r = pub.post(f"{api}/public/proposals/{token}/accept", json={"name": "Erin Buyer", "note": "Looks good"})
+    check("customer accepts online", r.status_code == 200 and r.json()["status"] == "ACCEPTED" and r.json()["responded_by"] == "Erin Buyer", r.text[:150])
+    check("second response refused", pub.post(f"{api}/public/proposals/{token}/decline", json={"name": "Erin Buyer"}).status_code == 422)
+    check("bad token 404", pub.get(f"{api}/public/proposals/not-a-token").status_code == 404)
+
+    r = c.post(f"{api}/orders/from-quote/{tq['id']}", headers=h)
+    check("create order from accepted quote", r.status_code == 201 and r.json()["order_number"].startswith("SO-"), r.text[:200])
+    order = r.json()
+    check("order total matches quote incl. tax", abs(float(order["total_amount"]) - float(tq["total_amount"])) < 0.001)
+    check("duplicate order refused", c.post(f"{api}/orders/from-quote/{tq['id']}", headers=h).status_code == 422)
+    check("order PENDING->FULFILLED refused", c.post(f"{api}/orders/{order['id']}/status", headers=h, json={"status": "FULFILLED"}).status_code == 422)
+    check("order confirmed", c.post(f"{api}/orders/{order['id']}/status", headers=h, json={"status": "CONFIRMED"}).json()["status"] == "CONFIRMED")
+    c.delete(f"{api}/tax-rates/{tax_id}", headers=h)
+
+    # ── AI-native layer ─────────────────────────────────────────────────────────────────────────
+    words = " ".join(prod["name"].split()[:3])
+    r = c.post(f"{api}/ai/quote-from-text", headers=h, json={"prompt": f"Create a quote for E2E Verify Co {tag}: 4 {words} with 5% discount, valid 20 days"})
+    check("NL quote parses", r.status_code == 200, r.text[:200])
+    nl = r.json()
+    print("   NL source:", nl["source"], "| customer:", nl["customer_name"], "| lines:", [(l["query"], l["quantity"], l["matched"] and l["matched"]["sku"]) for l in nl["lines"]], nl["warnings"])
+    check("NL resolves customer from the database", nl["customer_id"] == cust["id"])
+    check("NL resolves product from the database", bool(nl["lines"]) and nl["lines"][0]["matched"] is not None and nl["lines"][0]["quantity"] == 4)
+    r = c.post(f"{api}/ai/quote-from-text", headers=h, json={"prompt": f"Create a quote for E2E Verify Co {tag}: 4 {words} with 5% discount", "create": True})
+    check("NL creates draft quote", r.status_code == 200 and r.json()["created_quote_id"], r.text[:200])
+    nq = c.get(f"{api}/quotes/{r.json()['created_quote_id']}", headers=h).json()
+    check("NL quote has priced line with discount", nq["status"] == "DRAFT" and len(nq["items"]) == 1 and float(nq["items"][0]["discount_percentage"]) == 5.0, str(nq["items"][:1])[:150])
+    r = c.post(f"{api}/ai/quote-from-text", headers=h, json={"prompt": "quote for Nonexistent Nobody Ltd: 3 flux capacitors"})
+    check("NL never invents products or customers", r.status_code == 200 and r.json()["customer_id"] is None and r.json()["lines"][0]["matched"] is None, r.text[:200])
+    r = c.post(f"{api}/ai/ask", headers=h, json={"question": "What is my open pipeline and how many approvals are pending?"})
+    check("copilot ask", r.status_code == 200 and r.json()["answer"], r.text[:200])
+    print("   ask source:", r.json()["source"], "|", r.json()["answer"][:140])
+    print("   AI status:", c.get(f"{api}/ai/status", headers=h).json())
+
     print("\nFAILED:" if check.failed else "\nALL CHECKS PASSED", check.failed or "")
     sys.exit(1 if check.failed else 0)
 

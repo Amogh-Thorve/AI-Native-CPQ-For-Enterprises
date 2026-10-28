@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         description="Google Gemini API key for AI copilot functionality"
     )
 
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # Company branding used on client-facing proposals
     COMPANY_NAME: str = "Enterprise CPQ"
