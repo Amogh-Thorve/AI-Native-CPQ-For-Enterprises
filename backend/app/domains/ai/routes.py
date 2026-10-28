@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends
+from typing import List, Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.domains.auth.dependencies import get_current_user
@@ -15,6 +18,30 @@ from backend.app.domains.ai.nlquote import QuoteFromTextRequest, QuoteFromTextRe
 from backend.app.domains.ai.insights import AskRequest, AskResponse, DealInsights, ask as ask_copilot, deal_insights
 
 router = APIRouter(prefix="/ai", tags=["ai-copilot"])
+
+from backend.app.core.config import settings
+from backend.app.domains.ai.llm import Message, Orchestrator, ProviderError, build_provider
+from backend.app.domains.ai.tools import ToolExecutor
+from backend.app.domains.approval.checker import ApprovalPolicyChecker
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class QuoteAssistantRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    history: List[ChatTurn] = Field(default_factory=list, max_length=20)
+
+
+class QuoteAssistantResponse(BaseModel):
+    reply: str
+    trace: List[dict]
+    quote_id: Optional[int] = None
+    stopped_reason: str
+    usage: dict
+    model_version: str = ""
 
 @router.get("/status", response_model=AIStatusResponse)
 async def ai_status(
@@ -92,3 +119,31 @@ async def ask_the_copilot(
 ):
     """Ask a question about your pipeline, grounded in the quotes you can see."""
     return await ask_copilot(AIService(db), request.question, current_user)
+
+
+@router.post("/quote-assistant", response_model=QuoteAssistantResponse)
+async def quote_assistant(
+    body: QuoteAssistantRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Natural-language quoting. The model may call tools; every tool runs as the caller, so ownership,
+    RBAC and masking apply. Stateless: the client sends prior text turns in `history`.
+    """
+    model = settings.LLM_MODEL or settings.GEMINI_MODEL
+    try:
+        provider = build_provider(settings.LLM_PROVIDER, api_key=settings.GEMINI_API_KEY, model=model, base_url=settings.LLM_BASE_URL)
+    except ProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if provider is None:
+        raise HTTPException(status_code=503, detail="The quote assistant is not configured. Set LLM_PROVIDER in backend/.env.")
+
+    executor = ToolExecutor(current_user, db, policy_checker=ApprovalPolicyChecker(db))
+    history = [Message(role=t.role, content=t.content) for t in body.history]
+    result = await Orchestrator(provider, executor).run(body.message, history)
+    return QuoteAssistantResponse(
+        reply=result.reply, trace=result.trace, quote_id=result.quote_id,
+        stopped_reason=result.stopped_reason, usage=result.usage, model_version=result.model_version,
+    )
+

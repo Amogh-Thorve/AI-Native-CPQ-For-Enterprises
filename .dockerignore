@@ -1,0 +1,12 @@
+# Keep secrets, local state and build output out of the images.
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+backend/storage
+backend/static/documents
+.git
+.tmp_token.txt

@@ -1,132 +1,113 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional, Set
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.app.core.exceptions import DomainValidationError, EntityNotFoundError
+from backend.app.domains.approval.engine import STEP_ROLES, Level, RequiredApproval, evaluate
+from backend.app.domains.approval.errors import ApproverRoleError, SelfApprovalError
+from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest, ApprovalStatus
 from backend.app.domains.approval.repositories import ApprovalRepository
-from backend.app.domains.approval.models import ApprovalRequest, ApprovalPolicy, ApprovalStatus
-from backend.app.domains.approval.schemas import (
-    SubmitApprovalRequest, DecideApprovalRequest, 
-    ApprovalPolicyCreate, ApprovalRequestCreate
-)
-from backend.app.domains.quotes.services import QuoteService
-from backend.app.domains.quotes.models import Quote, QuoteStatus
+from backend.app.domains.approval.rules import load_rule_rows
+from backend.app.domains.approval.schemas import ApprovalPolicyCreate, DecideApprovalRequest, SubmitApprovalRequest
+from backend.app.domains.approval.snapshot import metrics_for_quote, snapshot_hash
 from backend.app.domains.auth.models import User
-from backend.app.core.exceptions import EntityNotFoundError, DomainValidationError
+from backend.app.domains.quotes.models import Quote, QuoteStatus
+from backend.app.domains.quotes.services import QuoteService
+
+
+def _sv(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _level_for_role(role: str) -> Level:
+    return Level.MANAGER if role.strip().lower() == "sales manager" else Level.EXECUTIVE
+
+
+def _may_decide(step_role: str, user_roles: List[str]) -> bool:
+    allowed = {step_role.lower(), "administrator"}
+    return any(r.lower() in allowed for r in user_roles)
+
 
 class ApprovalService:
     """
-    Business service layer managing approval cycles.
-    Validates discount thresholds, routes requests to appropriate roles,
-    and updates parent quote states.
+    Approval workflow. Routing comes from the pure rule engine (`engine.evaluate`). A request is bound to the
+    quote's content hash, so an approval applies only to the exact content that was reviewed.
     """
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.approval_repo = ApprovalRepository(db)
         self.quote_service = QuoteService(db)
 
     async def create_policy(self, schema: ApprovalPolicyCreate) -> ApprovalPolicy:
-        return await self.approval_repo.create_policy(schema)
+        """Legacy shape (one discount or margin threshold and a role) becomes one rule row in its own group."""
+        if schema.policy_type == "MARGIN":
+            metric, op, threshold = "MARGIN_PERCENT", "LT", schema.margin_threshold
+        else:
+            metric, op, threshold = "MAX_LINE_DISCOUNT", "GE", schema.discount_threshold
+        policy = ApprovalPolicy(
+            name=schema.name, policy_type=schema.policy_type, discount_threshold=schema.discount_threshold,
+            margin_threshold=schema.margin_threshold, role_required=schema.role_required, is_active=schema.is_active,
+            metric=metric, op=op, threshold=Decimal(str(threshold)),
+            required_level=_level_for_role(schema.role_required).name,
+            rule_group=await self.approval_repo.next_rule_group(),
+        )
+        self.db.add(policy)
+        await self.db.flush()
+        return policy
 
     async def check_and_route_quote(self, quote: Quote, current_user: Optional[User] = None) -> List[ApprovalRequest]:
         """
-        Internal evaluation of approval policies for a given quote.
-        Routes to approval queue if discount threshold triggered;
-        otherwise auto-approves the quote.
+        Evaluates the rules against the quote as it is now. No requirement: the quote is approved at once.
+        Otherwise a request is opened for the exact content hash and the quote is SUBMITTED.
         """
-        # Calculate overall discount and max line-item discount
-        total_before_discount = float(quote.subtotal) if quote.subtotal > 0 else (float(quote.total_amount) + float(quote.discount_amount))
-        overall_discount = 0.0
-        if total_before_discount > 0:
-            overall_discount = (float(quote.discount_amount) / total_before_discount) * 100.0
+        rows = await load_rule_rows(self.approval_repo)
+        required = evaluate(rows, metrics_for_quote(quote))
+        requester = current_user.id if current_user else quote.created_by_id
+        role = _role_label(current_user)
+        content_hash = snapshot_hash(quote)
 
-        max_line_discount = 0.0
-        for it in (quote.items or []):
-            if it.discount_percentage and float(it.discount_percentage) > max_line_discount:
-                max_line_discount = float(it.discount_percentage)
+        await self.approval_repo.supersede_pending(quote.id)
 
-        effective_discount = max(overall_discount, max_line_discount)
-
-        active_policies = await self.approval_repo.list_active_policies()
-        existing_requests = await self.approval_repo.list_requests_for_quote(quote.id)
-        existing_policy_ids = {r.policy_id for r in existing_requests if r.status in (ApprovalStatus.PENDING, "pending", "PENDING")}
-        triggered_requests: List[ApprovalRequest] = []
-
-        margins = [float(it.margin_percentage) for it in (quote.items or []) if it.margin_percentage is not None]
-        quote_margin = float(quote.margin_percentage) if (margins and quote.margin_percentage is not None) else None
-
-        def policy_triggered(policy: ApprovalPolicy) -> bool:
-            if getattr(policy, "policy_type", "DISCOUNT") == "MARGIN":
-                return quote_margin is not None and policy.margin_threshold is not None and quote_margin < float(policy.margin_threshold)
-            return effective_discount >= float(policy.discount_threshold)
-
-        for policy in active_policies:
-            if policy_triggered(policy):
-                if policy.id not in existing_policy_ids:
-                    req = await self.approval_repo.create_request(
-                        ApprovalRequestCreate(
-                            quote_id=quote.id,
-                            policy_id=policy.id,
-                            assigned_role=policy.role_required
-                        )
-                    )
-                    triggered_requests.append(req)
-                else:
-                    # Already pending for this policy
-                    for r in existing_requests:
-                        if r.policy_id == policy.id and r.status in (ApprovalStatus.PENDING, "pending", "PENDING"):
-                            triggered_requests.append(r)
-
-        user_roles, _ = self.quote_service._extract_user_context(current_user)
-        user_role_str = user_roles[0] if user_roles else "Sales Representative"
-        user_id_val = current_user.id if current_user else quote.created_by_id
-
-        if triggered_requests:
-            # Quote requires review
-            quote.status = QuoteStatus.SUBMITTED
-            self.db.add(quote)
-            await self.db.flush()
-
-            await self.quote_service.quote_repo.log_audit(
-                quote_id=quote.id,
-                action="QUOTE_SUBMITTED",
-                user_id=user_id_val,
-                user_role=user_role_str,
-                after_value={
-                    "status": QuoteStatus.SUBMITTED.value,
-                    "effective_discount": f"{effective_discount:.2f}%",
-                    "policies_triggered": [p.assigned_role for p in triggered_requests]
-                }
-            )
-            await self.quote_service.emit_event("quote.submitted", quote)
-        else:
-            # Auto-approved
+        if not required.requires_approval:
             quote.status = QuoteStatus.APPROVED
+            quote.approved_snapshot_hash = content_hash
             self.db.add(quote)
             await self.db.flush()
-
             await self.quote_service.quote_repo.log_audit(
-                quote_id=quote.id,
-                action="QUOTE_AUTO_APPROVED",
-                user_id=user_id_val,
-                user_role=user_role_str,
-                after_value={
-                    "status": QuoteStatus.APPROVED.value,
-                    "effective_discount": f"{effective_discount:.2f}%"
-                }
+                quote_id=quote.id, action="QUOTE_AUTO_APPROVED", user_id=requester, user_role=role,
+                after_value={"status": QuoteStatus.APPROVED.value, "level": Level.NONE.name, "snapshot_hash": content_hash},
             )
-            await self.quote_service.emit_event("quote.submitted", quote)
             await self.quote_service.emit_event("quote.approved", quote)
+            return []
 
-        return triggered_requests
+        policy_id = _first_policy_id(rows, required)
+        req = await self.approval_repo.create_routed_request(
+            quote_id=quote.id, policy_id=policy_id, quote_version=quote.version, snapshot_hash=content_hash,
+            required=required, requested_by_id=requester,
+            reason=f"{required.level.name} sign-off required by {len(required.triggered_groups)} rule(s)",
+        )
+        quote.status = QuoteStatus.SUBMITTED
+        self.db.add(quote)
+        await self.db.flush()
+        await self.quote_service.quote_repo.log_audit(
+            quote_id=quote.id, action="QUOTE_SUBMITTED", user_id=requester, user_role=role,
+            after_value={
+                "status": QuoteStatus.SUBMITTED.value, "level": required.level.name,
+                "steps": [STEP_ROLES[s] for s in required.steps], "snapshot_hash": content_hash,
+            },
+        )
+        await self.quote_service.emit_event("quote.submitted", quote)
+        return [req]
 
     async def check_and_submit_quote(self, request: SubmitApprovalRequest, current_user: Optional[User] = None) -> List[ApprovalRequest]:
-        """
-        API entry point to submit a quote for approval routing.
-        """
+        """API entry point to submit a quote for approval routing."""
         quote = await self.quote_service.get_quote(request.quote_id, current_user)
         if quote.status not in (QuoteStatus.DRAFT, QuoteStatus.SUBMITTED):
             raise DomainValidationError(f"Cannot submit a quote for approval if it is in '{quote.status}' state.")
-
         return await self.check_and_route_quote(quote, current_user)
 
     async def decide_request(
@@ -135,91 +116,105 @@ class ApprovalService:
         user_id: uuid.UUID,
         user_roles: List[str],
         user_permissions: Set[str],
-        decision: DecideApprovalRequest
+        decision: DecideApprovalRequest,
     ) -> ApprovalRequest:
         """
-        Record a decision (APPROVED/REJECTED) on a pending request.
-        If rejected:
-        - Quote status = REJECTED
-        If approved:
-        - Check if all other pending approval requests for this quote are completed.
-        - If all approved, mark the quote as APPROVED.
+        Decides the open step of a request.
+        - The submitter can never decide. The step's role (or Administrator) must be held.
+        - Steps run in order. A rejection at any step rejects the request and the quote.
+        - Final approval applies only if the quote still has the hash that was reviewed; otherwise the request is
+          STALE and the quote goes back to DRAFT.
         """
         req = await self.approval_repo.get_request_by_id(request_id)
         if not req:
             raise EntityNotFoundError(f"Approval request {request_id} not found.")
-
-        current_status_upper = req.status.upper() if isinstance(req.status, str) else req.status.value.upper()
-        if current_status_upper != "PENDING":
+        if _sv(req.status) != ApprovalStatus.PENDING.value:
             raise DomainValidationError("This request has already been decided.")
+        if req.requested_by_id is not None and req.requested_by_id == user_id:
+            raise SelfApprovalError()
 
-        # Verify RBAC role / permission match
-        is_admin = any(r.lower() in ("administrator", "admin") for r in user_roles)
-        is_exec = any(r.lower() == "executive" for r in user_roles)
-        has_manage_perm = "approval.manage" in user_permissions or "quotes.approve" in user_permissions
-        role_matches = any(r.lower() == req.assigned_role.lower() for r in user_roles)
+        step = next((s for s in req.steps if s.status == "PENDING"), None)
+        if step is None:
+            raise DomainValidationError("This request has no open approval step.")
+        if not _may_decide(step.role, user_roles):
+            raise ApproverRoleError(step.role)
 
-        if not (is_admin or is_exec or has_manage_perm or role_matches):
-            raise DomainValidationError(
-                f"Unauthorized. User roles {user_roles} do not have permission to decide requests for assigned role '{req.assigned_role}'."
-            )
+        now = datetime.utcnow()  # naive UTC, matching the DateTime columns
+        step.status = decision.status.value
+        step.decided_by_id = user_id
+        step.decided_at = now
+        step.comments = decision.comments
+        self.db.add(step)
 
-        # Update request state
-        decision_status_enum = ApprovalStatus(decision.status)
-        req.status = decision_status_enum
-        req.comments = decision.comments
-        req.decided_by_id = user_id
-        req.decided_at = datetime.utcnow()
-        self.db.add(req)
-        await self.db.flush()
-
-
-        # Update parent Quote state
         quote = await self.quote_service.get_quote(req.quote_id)
-        primary_role = user_roles[0] if user_roles else "Manager"
+        role = user_roles[0] if user_roles else step.role
 
-        if decision_status_enum == ApprovalStatus.REJECTED:
+        if decision.status == ApprovalStatus.REJECTED:
+            req.status = ApprovalStatus.REJECTED.value
+            _close(req, user_id, now, decision.comments)
             quote.status = QuoteStatus.REJECTED
             self.db.add(quote)
             await self.db.flush()
             await self.quote_service.quote_repo.log_audit(
-                quote_id=quote.id,
-                action="QUOTE_REJECTED",
-                user_id=user_id,
-                user_role=primary_role,
-                after_value={
-                    "status": QuoteStatus.REJECTED.value,
-                    "comments": decision.comments,
-                    "request_id": req.id
-                }
+                quote_id=quote.id, action="QUOTE_REJECTED", user_id=user_id, user_role=role,
+                after_value={"status": QuoteStatus.REJECTED.value, "comments": decision.comments, "request_id": req.id, "step": step.level},
             )
             await self.quote_service.emit_event("quote.rejected", quote)
-        elif decision_status_enum == ApprovalStatus.APPROVED:
-            all_requests = await self.approval_repo.list_requests_for_quote(req.quote_id)
-            all_approved = True
-            for r in all_requests:
-                r_status = r.status.upper() if isinstance(r.status, str) else r.status.value.upper()
-                if r_status != "APPROVED":
-                    all_approved = False
-                    break
+            return await self.approval_repo.get_request_by_id(req.id)
 
-            if all_approved:
-                quote.status = QuoteStatus.APPROVED
-                self.db.add(quote)
-                await self.db.flush()
-                await self.quote_service.quote_repo.log_audit(
-                    quote_id=quote.id,
-                    action="QUOTE_APPROVED",
-                    user_id=user_id,
-                    user_role=primary_role,
-                    after_value={
-                        "status": QuoteStatus.APPROVED.value,
-                        "comments": decision.comments,
-                        "request_id": req.id
-                    }
-                )
-                await self.quote_service.emit_event("quote.approved", quote)
+        remaining = [s for s in req.steps if s.status == "PENDING"]
+        await self.db.flush()
+        if remaining:
+            req.assigned_role = remaining[0].role
+            self.db.add(req)
+            await self.quote_service.quote_repo.log_audit(
+                quote_id=quote.id, action="QUOTE_APPROVAL_STEP_APPROVED", user_id=user_id, user_role=role,
+                after_value={"request_id": req.id, "step": step.level, "next_role": remaining[0].role},
+            )
+            await self.db.flush()
+            return await self.approval_repo.get_request_by_id(req.id)
 
-        # Reload with all relationship options
+        current_hash = snapshot_hash(quote)
+        if current_hash != req.snapshot_hash:
+            req.status = ApprovalStatus.STALE.value
+            _close(req, user_id, now, "Quote changed before the final decision.")
+            quote.status = QuoteStatus.DRAFT
+            self.db.add(quote)
+            await self.db.flush()
+            await self.quote_service.quote_repo.log_audit(
+                quote_id=quote.id, action="QUOTE_APPROVAL_STALE", user_id=user_id, user_role=role,
+                after_value={"request_id": req.id, "reviewed_hash": req.snapshot_hash, "current_hash": current_hash},
+            )
+            return await self.approval_repo.get_request_by_id(req.id)
+
+        req.status = ApprovalStatus.APPROVED.value
+        _close(req, user_id, now, decision.comments)
+        quote.status = QuoteStatus.APPROVED
+        quote.approved_snapshot_hash = current_hash
+        self.db.add(quote)
+        await self.db.flush()
+        await self.quote_service.quote_repo.log_audit(
+            quote_id=quote.id, action="QUOTE_APPROVED", user_id=user_id, user_role=role,
+            after_value={"status": QuoteStatus.APPROVED.value, "comments": decision.comments, "request_id": req.id, "snapshot_hash": current_hash},
+        )
+        await self.quote_service.emit_event("quote.approved", quote)
         return await self.approval_repo.get_request_by_id(req.id)
 
+
+def _close(req: ApprovalRequest, user_id: uuid.UUID, now: datetime, comments: Optional[str]) -> None:
+    req.decided_by_id = user_id
+    req.decided_at = now
+    req.comments = comments
+
+
+def _first_policy_id(rows, required: RequiredApproval) -> int:
+    for row in rows:
+        if row.group in required.triggered_groups:
+            return row.rule_id
+    raise DomainValidationError("No rule matched the required approval.")
+
+
+def _role_label(user: Optional[User]) -> Optional[str]:
+    if user is None or not user.roles:
+        return None
+    return user.roles[0].name

@@ -1,8 +1,9 @@
 from typing import List, Optional
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest, ApprovalStatus
+from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest, ApprovalRequestStep, ApprovalStatus
+from backend.app.domains.approval.engine import RequiredApproval, STEP_ROLES
 from backend.app.domains.approval.schemas import ApprovalPolicyCreate, ApprovalPolicyUpdate, ApprovalRequestCreate
 from backend.app.domains.quotes.models import Quote
 from backend.app.domains.auth.models import User
@@ -114,4 +115,43 @@ class ApprovalRepository:
         self.db.add(db_req)
         await self.db.flush()
         return await self.get_request_by_id(db_req.id)
+
+    async def list_active_rules(self) -> List[ApprovalPolicy]:
+        """Rule-engine rows (rule_group > 0) that are switched on."""
+        result = await self.db.execute(
+            select(ApprovalPolicy)
+            .where(ApprovalPolicy.is_active.is_(True), ApprovalPolicy.rule_group > 0)
+            .order_by(ApprovalPolicy.rule_group, ApprovalPolicy.id)
+        )
+        return list(result.scalars().all())
+
+    async def next_rule_group(self) -> int:
+        result = await self.db.execute(select(func.max(ApprovalPolicy.rule_group)))
+        return int(result.scalar() or 0) + 1
+
+    async def supersede_pending(self, quote_id: int) -> None:
+        await self.db.execute(
+            update(ApprovalRequest)
+            .where(ApprovalRequest.quote_id == quote_id, ApprovalRequest.status == ApprovalStatus.PENDING.value)
+            .values(status=ApprovalStatus.SUPERSEDED.value)
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.flush()
+
+    async def create_routed_request(
+        self, *, quote_id: int, policy_id: int, quote_version: int, snapshot_hash: str,
+        required: RequiredApproval, requested_by_id, reason: str,
+    ) -> ApprovalRequest:
+        steps = [
+            ApprovalRequestStep(step_order=i + 1, level=level.name, role=STEP_ROLES[level], status="PENDING")
+            for i, level in enumerate(required.steps)
+        ]
+        req = ApprovalRequest(
+            quote_id=quote_id, policy_id=policy_id, assigned_role=steps[0].role,
+            status=ApprovalStatus.PENDING.value, quote_version=quote_version, snapshot_hash=snapshot_hash,
+            required_level=required.level.name, requested_by_id=requested_by_id, request_reason=reason, steps=steps,
+        )
+        self.db.add(req)
+        await self.db.flush()
+        return await self.get_request_by_id(req.id)
 

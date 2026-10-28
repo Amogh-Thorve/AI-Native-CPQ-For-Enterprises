@@ -45,6 +45,8 @@ def main():
     ap.add_argument("--base", default="http://localhost:8000")
     ap.add_argument("--email", required=True)
     ap.add_argument("--password", required=True)
+    ap.add_argument("--approver-email", default="approval.exec@cpq.com")
+    ap.add_argument("--approver-password", default="ToolsTest123!")
     a = ap.parse_args()
     api = a.base + "/api/v1"
 
@@ -56,6 +58,10 @@ def main():
     r = c.post(f"{api}/auth/login", json={"email": a.email, "password": a.password})
     check("login", r.status_code == 200, r.text[:120])
     h = {"Authorization": "Bearer " + r.json()["access_token"]}
+    # Approvals must come from someone other than the submitter, so use a separate executive account.
+    ra = c.post(f"{api}/auth/login", json={"email": a.approver_email, "password": a.approver_password})
+    check("approver login", ra.status_code == 200, ra.text[:120])
+    approver = {"Authorization": "Bearer " + ra.json()["access_token"]}
 
     tag = uuid.uuid4().hex[:6]
     r = c.post(f"{api}/customers/", headers=h, json={"customer_number": f"E2E-{tag}", "legal_name": f"E2E Verify Co {tag}", "status": "ACTIVE"})
@@ -85,7 +91,7 @@ def main():
     if q["status"] == "SUBMITTED":
         pend = [p for p in c.get(f"{api}/approvals/pending", headers=h).json() if p["quote_id"] == q["id"]]
         for p in pend:
-            rr = c.post(f"{api}/approvals/requests/{p['id']}/decide", headers=h, json={"status": "APPROVED", "comments": "e2e"})
+            rr = c.post(f"{api}/approvals/requests/{p['id']}/decide", headers=approver, json={"status": "APPROVED", "comments": "e2e"})
             check(f"approve request {p['id']}", rr.status_code == 200, rr.text[:150])
         q = c.get(f"{api}/quotes/{q['id']}", headers=h).json()
     check("quote approved", q["status"] == "APPROVED", q["status"])
@@ -162,7 +168,7 @@ def main():
     brief = c.get(f"{api}/ai/deal-insights/{tq['id']}", headers=h)
     check("AI deal insights", brief.status_code == 200 and "narrative" in brief.json(), brief.text[:150])
     for p in pend:
-        c.post(f"{api}/approvals/requests/{p['id']}/decide", headers=h, json={"status": "APPROVED", "comments": "e2e"})
+        c.post(f"{api}/approvals/requests/{p['id']}/decide", headers=approver, json={"status": "APPROVED", "comments": "e2e"})
     check("deactivate policy", c.delete(f"{api}/approvals/policies/{pol_id}", headers=h).status_code == 204)
     tq = c.get(f"{api}/quotes/{tq['id']}", headers=h).json()
     check("taxed quote approved", tq["status"] == "APPROVED", tq["status"])
