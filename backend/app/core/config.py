@@ -44,6 +44,13 @@ class Settings(BaseSettings):
 
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # LLM orchestrator. "none" disables the quote assistant (endpoint returns 503).
+    # gemini: uses GEMINI_API_KEY and GEMINI_MODEL. openai_compatible: any server speaking /chat/completions
+    # (Ollama, vLLM, LM Studio), at LLM_BASE_URL with model LLM_MODEL.
+    LLM_PROVIDER: str = "none"
+    LLM_MODEL: str = ""
+    LLM_BASE_URL: str = ""
+
     # Company branding used on client-facing proposals
     COMPANY_NAME: str = "Enterprise CPQ"
     COMPANY_ADDRESS: str = ""
