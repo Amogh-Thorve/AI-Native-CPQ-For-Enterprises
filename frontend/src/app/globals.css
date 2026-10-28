@@ -1,35 +1,238 @@
 @import "tailwindcss";
 
+/*
+ * Design system: warm neutral ladder, one charcoal action colour, no shadows.
+ * The default Tailwind palettes are remapped here so every existing utility
+ * (slate-*, blue-*, teal-*, …) resolves to the system instead of stock colours.
+ *   ladder: canvas #fff → soft #fbf9f8 → tint #f5f4f2 → warm #f1efed → hairline #e4e1dd → ink-deep #211e1c
+ */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --canvas: #ffffff;
+  --canvas-soft: #fbf9f8;
+  --canvas-tint: #f5f4f2;
+  --canvas-warm: #f1efed;
+  --hairline: #e4e1dd;
+  --field-border: #d4cfca;
+  --ink-deep: #211e1c;
+  --ink: #161513;
+  --primary: #312d2a;
+  --primary-pressed: #47423e;
+  --link: #006b8f;
+  --focus: #227e9e;
+  --error: #d63b25;
+  --brand-mark: #c74634;
+  --accent-gold: #f0cc71;
+  --background: var(--canvas-warm);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-canvas: var(--canvas);
+  --color-canvas-soft: var(--canvas-soft);
+  --color-canvas-tint: var(--canvas-tint);
+  --color-canvas-warm: var(--canvas-warm);
+  --color-hairline: var(--hairline);
+  --color-field-border: var(--field-border);
+  --color-ink: var(--ink);
+  --color-ink-deep: var(--ink-deep);
+  --color-primary: var(--primary);
+  --color-link: var(--link);
+  --color-brand-mark: var(--brand-mark);
+  --color-accent-gold: var(--accent-gold);
+  --font-serif: Georgia, "Times New Roman", serif;
+}
+
+@theme {
+  /* Fonts: Inter stands in for Oracle Sans (variable weight axis), Georgia for display */
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Warm neutral scale replaces slate / zinc / gray */
+  --color-slate-50: #fbf9f8;
+  --color-slate-100: #f5f4f2;
+  --color-slate-200: #e4e1dd;
+  --color-slate-300: #d4cfca;
+  --color-slate-400: #aea8a2;
+  --color-slate-500: #7a746e;
+  --color-slate-600: #5c5651;
+  --color-slate-700: #47423e;
+  --color-slate-800: #312d2a;
+  --color-slate-900: #161513;
+  --color-slate-950: #0f0e0d;
+  --color-zinc-50: #fbf9f8;
+  --color-zinc-100: #f5f4f2;
+  --color-zinc-200: #e4e1dd;
+  --color-zinc-300: #d4cfca;
+  --color-zinc-400: #aea8a2;
+  --color-zinc-500: #7a746e;
+  --color-zinc-600: #5c5651;
+  --color-zinc-700: #47423e;
+  --color-zinc-800: #312d2a;
+  --color-zinc-900: #211e1c;
+  --color-zinc-950: #161513;
+
+  /* Accent hues collapse to the neutral ladder / charcoal action colour:
+     colour is never used on controls, only status semantics keep their hue */
+  --color-blue-50: #f5f4f2;
+  --color-blue-100: #f1efed;
+  --color-blue-200: #e4e1dd;
+  --color-blue-300: #d4cfca;
+  --color-blue-400: #7a746e;
+  --color-blue-500: #47423e;
+  --color-blue-600: #312d2a;
+  --color-blue-700: #47423e;
+  --color-blue-800: #211e1c;
+  --color-blue-900: #161513;
+  --color-teal-50: #f5f4f2;
+  --color-teal-100: #f1efed;
+  --color-teal-200: #e4e1dd;
+  --color-teal-300: #d4cfca;
+  --color-teal-400: #7a746e;
+  --color-teal-500: #47423e;
+  --color-teal-600: #312d2a;
+  --color-teal-700: #312d2a;
+  --color-teal-800: #211e1c;
+  --color-teal-900: #161513;
+  --color-sky-50: #f5f4f2;
+  --color-sky-100: #f1efed;
+  --color-sky-500: #47423e;
+  --color-sky-600: #312d2a;
+  --color-violet-50: #f5f4f2;
+  --color-violet-100: #f1efed;
+  --color-violet-500: #47423e;
+  --color-violet-600: #312d2a;
+  --color-purple-50: #f5f4f2;
+  --color-purple-100: #f1efed;
+  --color-purple-600: #312d2a;
+  --color-indigo-50: #f5f4f2;
+  --color-indigo-100: #f1efed;
+  --color-indigo-600: #312d2a;
+
+  /* Semantic status hues, kept muted and warm */
+  --color-rose-50: #fbeeea;
+  --color-rose-100: #f6dcd5;
+  --color-rose-200: #efc3b8;
+  --color-rose-300: #e49d8d;
+  --color-rose-500: #d63b25;
+  --color-rose-600: #d63b25;
+  --color-rose-700: #b02f1c;
+  --color-rose-800: #8a2516;
+  --color-red-50: #fbeeea;
+  --color-red-100: #f6dcd5;
+  --color-red-200: #efc3b8;
+  --color-red-400: #d63b25;
+  --color-red-500: #d63b25;
+  --color-red-600: #d63b25;
+  --color-red-700: #b02f1c;
+  --color-red-800: #8a2516;
+  --color-red-950: #2b0f0a;
+  --color-emerald-50: #eef3ef;
+  --color-emerald-100: #dbe7de;
+  --color-emerald-200: #c2d6c7;
+  --color-emerald-500: #33553c;
+  --color-emerald-600: #33553c;
+  --color-emerald-700: #2a4731;
+  --color-emerald-800: #213a28;
+  --color-amber-50: #fbf6e6;
+  --color-amber-100: #f7e0a1;
+  --color-amber-200: #f0cc71;
+  --color-amber-500: #b58a1b;
+  --color-amber-600: #8f6b12;
+  --color-amber-700: #75570f;
+  --color-amber-800: #5c440c;
+
+  /* No shadows anywhere: depth comes from tonal steps and hairlines */
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+
+  /* Radius scale: 4 buttons/inputs, 6 fields, 8 cards */
+  --radius-xs: 4px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 8px;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Enterprise compact scrollbars */
+/* Heading registers: Georgia display for page titles, heavy sans for section headings */
+h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+h2,
+h3,
+h4 {
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+/* Zero tracking everywhere */
+* {
+  letter-spacing: 0 !important;
+}
+
+/* Inline links: colour alone carries the affordance */
+main a:not([class]) {
+  color: var(--link);
+  text-decoration: none;
+}
+
+/* One focus ring on every surface */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Form controls: 1px field border, 6px radius */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border-color: var(--field-border);
+  border-radius: 6px;
+  background-color: var(--canvas);
+  color: var(--ink);
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: var(--canvas-soft);
+  color: #aea8a2;
+  border-color: var(--hairline);
+}
+
+/* Compact scrollbars on the warm ladder */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--canvas-tint);
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--field-border);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #aea8a2;
 }

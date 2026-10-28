@@ -18,7 +18,6 @@ import {
   Search,
   LogOut,
   ChevronDown,
-  ShieldCheck,
   Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,13 +35,13 @@ function NavLink({ href, label, icon, active }: NavLinkProps) {
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 select-none",
+        "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 select-none border-l-4",
         active
-          ? "bg-blue-50 text-blue-600 font-semibold shadow-2xs"
-          : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
+          ? "bg-canvas text-ink font-bold border-primary"
+          : "text-slate-700 hover:text-ink hover:bg-canvas-tint border-transparent font-medium"
       )}
     >
-      <span className={cn(active ? "text-blue-600" : "text-slate-500")}>{icon}</span>
+      <span className={cn(active ? "text-ink" : "text-slate-500")}>{icon}</span>
       <span>{label}</span>
     </Link>
   );
@@ -91,18 +90,14 @@ export default function DashboardLayout({
     .slice(0, 2);
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans antialiased">
+    <div className="flex min-h-screen bg-canvas-warm text-ink font-sans antialiased">
       {/* ─── Top Bar ────────────────────────────────────────────── */}
-      <header className={"h-14 fixed top-0 inset-x-0 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 z-30"}>
+      <header className={"h-[72px] fixed top-0 inset-x-0 bg-canvas border-b border-hairline flex items-center justify-between px-6 z-30"}>
         {/* Brand Logo */}
         <div className="flex items-center gap-2.5 w-60">
-          <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200/70 flex items-center justify-center text-teal-600 shadow-2xs">
-            <ShieldCheck size={20} className="stroke-[2.2]" />
-          </div>
-          <span className="font-bold text-sm tracking-tight text-slate-900 uppercase">
-            CPQ <span className="text-teal-600 font-extrabold">Cognitive</span>
-          </span>
+          <span className="font-extrabold text-xl text-brand-mark">CPQ Cognitive</span>
         </div>
+
 
         {/* Global Search */}
         <div className="flex-1 max-w-xl mx-4">
@@ -113,9 +108,9 @@ export default function DashboardLayout({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search products, customers, or quotes..."
-              className="w-full pl-9 pr-14 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all shadow-2xs"
+              className="w-full pl-9 pr-14 py-2.5 bg-canvas border border-field-border rounded-md text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-ink transition-colors"
             />
-            <div className="absolute right-2.5 flex items-center gap-0.5 text-[10px] font-semibold text-slate-400 border border-slate-200 bg-white px-1.5 py-0.5 rounded shadow-2xs pointer-events-none">
+            <div className="absolute right-2.5 flex items-center gap-0.5 text-[10px] font-semibold text-slate-400 border border-hairline bg-canvas px-1.5 py-0.5 rounded pointer-events-none">
               <span>⌘</span>
               <span>K</span>
             </div>
@@ -130,7 +125,7 @@ export default function DashboardLayout({
             title="Notifications"
           >
             <Bell size={17} />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-white" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-mark" />
           </button>
 
           {/* User Profile */}
@@ -139,7 +134,7 @@ export default function DashboardLayout({
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className="flex items-center gap-2.5 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center text-xs font-bold tracking-wider shadow-2xs">
+              <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold">
                 {initials}
               </div>
               <div className="text-left hidden sm:block">
@@ -151,7 +146,7 @@ export default function DashboardLayout({
 
             {/* User Dropdown */}
             {isUserMenuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 z-40 text-xs">
+              <div className="absolute right-0 mt-2 w-48 bg-canvas border border-hairline rounded-xl py-1.5 z-40 text-xs">
                 <div className="px-3 py-2 border-b border-slate-100">
                   <div className="font-semibold text-slate-800">{displayName}</div>
                   <div className="text-slate-400 text-[11px] truncate">{user?.email || "aarav@enterprise.com"}</div>
@@ -173,7 +168,7 @@ export default function DashboardLayout({
       </header>
 
       {/* ─── Left Sidebar ───────────────────────────────────────── */}
-      <aside className="w-60 bg-white border-r border-slate-200/80 flex flex-col fixed inset-y-0 left-0 top-14 z-20">
+      <aside className="w-60 bg-canvas-soft border-r border-hairline flex flex-col fixed inset-y-0 left-0 top-[72px] z-20">
         {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {mainLinks.map((link) => (
@@ -188,7 +183,7 @@ export default function DashboardLayout({
         </nav>
 
         {/* Bottom System Links */}
-        <div className="p-3 border-t border-slate-100 space-y-1">
+        <div className="p-3 border-t border-hairline space-y-1">
           {bottomLinks.map((link) => (
             <NavLink
               key={link.label}
@@ -201,11 +196,11 @@ export default function DashboardLayout({
 
           {/* AI Copilot Badge */}
           <div className="pt-2">
-            <div className="flex items-center gap-2.5 p-2 rounded-lg bg-teal-50/60 border border-teal-100 text-teal-800">
-              <Sparkles size={14} className="text-teal-600 shrink-0" />
+            <div className="flex items-center gap-2.5 p-2 rounded-md bg-canvas border border-hairline text-ink">
+              <Sparkles size={14} className="text-slate-600 shrink-0" />
               <div className="text-[11px] leading-tight">
                 <span className="font-semibold">AI Copilot</span>
-                <span className="block text-[10px] text-teal-600">Cognitive Pricing</span>
+                <span className="block text-[10px] text-slate-500">Cognitive Pricing</span>
               </div>
             </div>
           </div>
@@ -213,7 +208,7 @@ export default function DashboardLayout({
       </aside>
 
       {/* ─── Main Content Canvas ─────────────────────────────────── */}
-      <div className="flex-1 pl-60 pt-14 flex flex-col min-h-screen">
+      <div className="flex-1 pl-60 pt-[72px] flex flex-col min-h-screen">
         <main className="flex-1 p-8 max-w-7xl w-full mx-auto">{children}</main>
       </div>
     </div>
