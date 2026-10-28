@@ -1,92 +1,79 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
+  Download,
   FileText,
+  Mail,
   Plus,
-  Search,
-  Filter,
-  Eye,
+  RefreshCw,
+  Send,
+  Sparkles,
   Trash2,
   CheckCircle,
-  Clock,
-  ArrowRight,
-  ShieldCheck,
-  ChevronDown,
-  Info,
-  Calendar,
-  Building,
-  Check,
-  X,
-  Share2,
-  Save,
-  Laptop,
   Cloud,
-  Wrench,
-  TrendingUp,
-  MoreVertical,
-  Edit,
-  Sparkles,
-  Package,
-  Layers,
-  ArrowLeft
+  Copy,
+  XCircle,
 } from "lucide-react";
-import { api } from "@/lib/api";
-import { useAuth } from "@/hooks/useAuth";
-import { useDemoTour } from "@/components/demo/DemoTourProvider";
+import { api, errorMessage } from "@/lib/api";
 import {
+  Button,
   Card,
+  CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
-  CardContent,
-  Button,
-  StatusBadge,
-  PageHeader,
   DataTable,
-  TableHead,
-  TableRow,
-  TableHeader,
-  TableCell,
-  SearchBar,
   FilterSelect,
-  HorizontalStepper,
-  CircularProgress,
-  Modal
+  Modal,
+  PageHeader,
+  SearchBar,
+  StatusBadge,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui";
 
-// ─── Interfaces ─────────────────────────────────────────────────────────────
+// ─── Types (mirror backend QuoteRead) ───────────────────────────────────────
 
 interface CustomerSummary {
   id: number;
-  name: string;
+  name?: string;
   legal_name?: string | null;
   display_name?: string | null;
   customer_number?: string | null;
   email?: string | null;
-  phone?: string | null;
-  industry?: string | null;
-  customer_type?: string | null;
 }
 
-interface QuoteLineItem {
+interface QuoteLine {
   id: number;
-  quote_id?: number;
   product_id: number;
   product_name?: string | null;
   sku?: string | null;
   billing_type: string;
   currency: string;
   quantity: number;
-  unit_price: string | number;
-  discount_percentage: string | number;
-  discount_amount?: string | number;
-  total_price?: string | number;
-  line_total: string | number;
-  configuration_status?: "CONFIGURED" | "STANDARD";
-  configuration_version?: string;
+  unit_price: string;
+  discount_percentage: string;
+  discount_amount: string;
+  total_price: string;
+  margin_percentage?: string | null;
+  pricing_method?: string | null;
+  configuration_id?: string | null;
 }
+
+interface AuditLog {
+  id: number;
+  action: string;
+  user_role?: string | null;
+  timestamp: string;
+  after_value?: Record<string, unknown> | null;
+}
+
+type QuoteStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED";
 
 interface Quote {
   id: number;
@@ -95,1039 +82,861 @@ interface Quote {
   customer_id: number;
   title?: string | null;
   description?: string | null;
-  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
+  notes?: string | null;
+  status: QuoteStatus;
   currency: string;
   valid_until?: string | null;
-  notes?: string | null;
   subtotal: string;
   discount_amount: string;
-  discount_total: string;
   tax_amount: string;
   total_amount: string;
-  grand_total: string;
   margin_percentage?: string | null;
-  margin_amount?: string | null;
-  created_by_id: string;
   customer?: CustomerSummary | null;
   created_at: string;
-  items: QuoteLineItem[];
+  items: QuoteLine[];
+  audit_logs: AuditLog[];
 }
 
 interface Product {
   id: number;
   sku: string;
   name: string;
-  description?: string | null;
   base_price: string | number;
   currency: string;
   is_active: boolean;
   billing_type: string;
 }
 
-export default function QuoteBuilderPage() {
-  const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const {
-    isActive: isDemoActive,
-    flags: demoFlags,
-    mockQuotes,
-    mockProducts,
-    mockCustomers,
-  } = useDemoTour();
+interface QuoteDocument {
+  id: number;
+  generated_at: string;
+  file_path: string;
+}
 
-  // Mode: "builder" (default to match reference image) or "list"
-  const [viewMode, setViewMode] = useState<"builder" | "list">("builder");
+interface EmailLog {
+  id: number;
+  recipient: string;
+  subject: string;
+  sent_at: string;
+  status: string;
+  error_message?: string | null;
+}
 
-  // Stepper state (1: Customer, 2: Add Products, 3: Configure, 4: Pricing, 5: Review)
-  const [currentStep, setCurrentStep] = useState<number>(3);
+interface PendingLine {
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  configuration_id?: string;
+  configuration_snapshot?: Record<string, unknown>;
+}
 
-  // Search & Filter State for List View
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+const PENDING_LINE_KEY = "cpq_pending_line";
 
-  // Active Quote State for Builder
-  const [activeQuoteId, setActiveQuoteId] = useState<number | null>(null);
-  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+const money = (v: string | number | null | undefined, cur = "USD") =>
+  `${cur} ${Number(v ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Form Fields
-  const [quoteName, setQuoteName] = useState("Acme IT Infrastructure Upgrade");
-  const [quoteNumber, setQuoteNumber] = useState("Q-2026-0001");
-  const [validUntil, setValidUntil] = useState("2026-09-30");
-  const [currency, setCurrency] = useState("USD");
-  const [description, setDescription] = useState(
-    "IT infrastructure upgrade including hardware, software licenses, and professional services."
-  );
+const customerName = (c?: CustomerSummary | null, id?: number) =>
+  c?.display_name || c?.name || c?.legal_name || (id ? `Customer #${id}` : "—");
 
-  // Active Customer in Builder
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary>({
-    id: 1,
-    name: "Acme Corporation",
-    customer_number: "CUST-001",
-    email: "sarah.johnson@acme.com",
-    phone: "+1 (415) 555-0123",
-    industry: "Technology",
-    customer_type: "Enterprise",
-  });
+const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
-  // Line Items in Builder (pre-populated with high-fidelity reference items)
-  const [lineItems, setLineItems] = useState<QuoteLineItem[]>([
-    {
-      id: 1,
-      product_id: 101,
-      product_name: "Dell Latitude 7440",
-      sku: "DEV-LAP-001",
-      configuration_status: "CONFIGURED",
-      configuration_version: "v1.0",
-      billing_type: "NRC",
-      currency: "USD",
-      quantity: 10,
-      unit_price: 1299.0,
-      discount_percentage: 10,
-      line_total: 11691.0,
-    },
-    {
-      id: 2,
-      product_id: 102,
-      product_name: "Enterprise Cloud Subscription",
-      sku: "SaaS-TIER-SEED",
-      configuration_status: "STANDARD",
-      billing_type: "MRC",
-      currency: "USD",
-      quantity: 50,
-      unit_price: 49.0,
-      discount_percentage: 0,
-      line_total: 2450.0,
-    },
-    {
-      id: 3,
-      product_id: 103,
-      product_name: "Implementation Service",
-      sku: "DEV-SVC-IMP",
-      configuration_status: "STANDARD",
-      billing_type: "NRC",
-      currency: "USD",
-      quantity: 1,
-      unit_price: 1500.0,
-      discount_percentage: 0,
-      line_total: 1500.0,
-    },
-  ]);
+const toIsoEndOfDay = (date: string) => (date ? `${date}T23:59:59Z` : undefined);
 
-  // Queries
-  const { data: liveQuotes = [], isLoading: isLoadingLiveQuotes } = useQuery<Quote[]>({
-    queryKey: ["quotes", statusFilter, searchQuery],
-    queryFn: () => {
-      let path = "/quotes/";
-      const params = new URLSearchParams();
-      if (statusFilter !== "ALL") params.append("status", statusFilter);
-      if (searchQuery.trim()) params.append("search", searchQuery.trim());
-      const queryStr = params.toString();
-      return api.get<Quote[]>(queryStr ? `${path}?${queryStr}` : path);
-    },
-    enabled: !isDemoActive,
-  });
-  const quotes = isDemoActive ? (mockQuotes as unknown as Quote[]) : liveQuotes;
-  const isLoadingQuotes = isDemoActive ? false : isLoadingLiveQuotes;
+// ─── Page ───────────────────────────────────────────────────────────────────
 
-  const { data: customersData } = useQuery<{ items: CustomerSummary[] } | CustomerSummary[]>({
-    queryKey: ["customers-list"],
-    queryFn: () => api.get<any>("/customers/"),
-    enabled: !isDemoActive,
-  });
-  const customerList: CustomerSummary[] = isDemoActive
-    ? mockCustomers.map((c) => ({
-        id: c.id,
-        name: c.legal_name,
-        legal_name: c.legal_name,
-        display_name: c.display_name,
-        customer_number: c.customer_number,
-        email: c.email,
-        phone: c.phone,
-        industry: c.industry,
-        customer_type: c.customer_type,
-      }))
-    : Array.isArray(customersData)
-      ? customersData
-      : customersData?.items || [];
+type View = { mode: "list" } | { mode: "new" } | { mode: "detail"; id: number };
 
-  const { data: productsData = [] } = useQuery<Product[]>({
-    queryKey: ["products-list"],
-    queryFn: () => api.get<Product[]>("/catalog/products/"),
-    enabled: !isDemoActive,
-  });
-  const activeProducts = (isDemoActive ? mockProducts : productsData).filter((p) => p.is_active);
+export default function QuotesPage() {
+  const [view, setView] = useState<View>({ mode: "list" });
+  const [notice, setNotice] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  useEffect(() => {
-    if (!isDemoActive) return;
-    setViewMode(demoFlags.quoteBuilder ? "builder" : "list");
-    if (demoFlags.quoteLineCount <= 0) {
-      setLineItems([]);
-    } else {
-      setLineItems(mockQuotes[0]?.items.slice(0, demoFlags.quoteLineCount) as QuoteLineItem[]);
-    }
-  }, [isDemoActive, demoFlags.quoteBuilder, demoFlags.quoteLineCount, mockQuotes]);
-
-  // Mutations
-  const createQuoteMutation = useMutation({
-    mutationFn: (payload: any) => api.post<Quote>("/quotes/", payload),
-    onSuccess: (newQuote) => {
-      queryClient.invalidateQueries({ queryKey: ["quotes"] });
-      setActiveQuoteId(newQuote.id);
-      setQuoteNumber(newQuote.quote_number);
-      alert(`Quote ${newQuote.quote_number} saved successfully!`);
-    },
-    onError: (err: any) => {
-      alert(err?.detail || "Failed to save quote draft.");
-    },
-  });
-
-  const submitQuoteMutation = useMutation({
-    mutationFn: (quoteId: number) => api.post<Quote>(`/quotes/${quoteId}/submit`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["quotes"] });
-      alert("Quote submitted for approval successfully!");
-      setViewMode("list");
-    },
-    onError: (err: any) => {
-      alert(err?.detail || "Failed to submit quote.");
-    },
-  });
-
-  // Calculate totals
-  const subtotal = lineItems.reduce((acc, item) => {
-    const unit = Number(item.unit_price) || 0;
-    const qty = Number(item.quantity) || 0;
-    return acc + unit * qty;
-  }, 0);
-
-  const discountAmount = lineItems.reduce((acc, item) => {
-    const unit = Number(item.unit_price) || 0;
-    const qty = Number(item.quantity) || 0;
-    const discPct = Number(item.discount_percentage) || 0;
-    return acc + (unit * qty * discPct) / 100;
-  }, 0);
-
-  const totalUSD = subtotal - discountAmount;
-  const expectedMarginPercent = 32.5;
-  const expectedMarginAmount = 6834.0;
-
-  // Actions
-  const handleQuantityChange = (id: number, newQty: number) => {
-    setLineItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const qty = Math.max(1, newQty);
-          const unit = Number(item.unit_price) || 0;
-          const discPct = Number(item.discount_percentage) || 0;
-          const total = qty * unit * (1 - discPct / 100);
-          return { ...item, quantity: qty, line_total: total };
-        }
-        return item;
-      })
-    );
+  const notify = (text: string, type: "success" | "error" = "success") => {
+    setNotice({ text, type });
+    setTimeout(() => setNotice(null), 5000);
   };
 
-  const handleDiscountChange = (id: number, newDisc: number) => {
-    setLineItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const disc = Math.min(100, Math.max(0, newDisc));
-          const unit = Number(item.unit_price) || 0;
-          const qty = Number(item.quantity) || 0;
-          const total = qty * unit * (1 - disc / 100);
-          return { ...item, discount_percentage: disc, line_total: total };
-        }
-        return item;
-      })
-    );
-  };
-
-  const handleRemoveLine = (id: number) => {
-    setLineItems((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const handleAddProduct = (product: Product) => {
-    const newItem: QuoteLineItem = {
-      id: Date.now(),
-      product_id: product.id,
-      product_name: product.name,
-      sku: product.sku,
-      configuration_status: "STANDARD",
-      billing_type: product.billing_type || "NRC",
-      currency: product.currency || "USD",
-      quantity: 1,
-      unit_price: Number(product.base_price) || 100,
-      discount_percentage: 0,
-      line_total: Number(product.base_price) || 100,
-    };
-    setLineItems((prev) => [...prev, newItem]);
-    setIsProductPickerOpen(false);
-  };
-
-  const handleSaveDraft = () => {
-    if (isDemoActive) return;
-    const payload = {
-      customer_id: selectedCustomer.id || 1,
-      title: quoteName,
-      currency,
-      valid_until: validUntil || undefined,
-      description,
-      notes: "Saved from CPQ Cognitive Quote Builder",
-      items: lineItems.map((item) => ({
-        product_id: item.product_id,
-        quantity: item.quantity,
-        discount_percentage: item.discount_percentage,
-      })),
-    };
-    createQuoteMutation.mutate(payload);
-  };
-
-  const handleSubmit = () => {
-    if (isDemoActive) return;
-    if (activeQuoteId) {
-      submitQuoteMutation.mutate(activeQuoteId);
-    } else {
-      // First save draft, then submit
-      const payload = {
-        customer_id: selectedCustomer.id || 1,
-        title: quoteName,
-        currency,
-        valid_until: validUntil || undefined,
-        description,
-        items: lineItems.map((item) => ({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          discount_percentage: item.discount_percentage,
-        })),
-      };
-      createQuoteMutation.mutate(payload, {
-        onSuccess: (newQuote) => {
-          submitQuoteMutation.mutate(newQuote.id);
-        },
-      });
-    }
-  };
-
-  const stepsList = [
-    { id: 1, label: "Customer" },
-    { id: 2, label: "Add Products" },
-    { id: 3, label: "Configure" },
-    { id: 4, label: "Pricing" },
-    { id: 5, label: "Review" },
-  ];
-
-  // ─── LIST VIEW ─────────────────────────────────────────────────────────────
-  if (viewMode === "list") {
-    return (
-      <div className="space-y-6">
-        <div data-demo="quotes-header">
-        <PageHeader
-          title="Quotes"
-          description="Manage, build, and track enterprise customer quotes."
-          actions={
-            <Button
-              variant="primary"
-              icon={<Plus size={15} />}
-              onClick={() => {
-                setActiveQuoteId(null);
-                setViewMode("builder");
-              }}
-            >
-              Create Quote
-            </Button>
-          }
-        />
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
-          <SearchBar
-            value={searchQuery}
-            onChangeValue={setSearchQuery}
-            placeholder="Search quotes by number, title, or customer..."
-            className="w-full sm:w-80"
-          />
-          <div className="flex items-center gap-2">
-            <FilterSelect
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              label="Status"
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="DRAFT">Draft</option>
-              <option value="SUBMITTED">Submitted</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="EXPIRED">Expired</option>
-            </FilterSelect>
-          </div>
-        </div>
-
-        <DataTable data-demo="quotes-list">
-          <TableHead>
-            <TableRow>
-              <TableHeader>Quote #</TableHeader>
-              <TableHeader>Title</TableHeader>
-              <TableHeader>Customer</TableHeader>
-              <TableHeader>Status</TableHeader>
-              <TableHeader>Total</TableHeader>
-              <TableHeader>Valid Until</TableHeader>
-              <TableHeader className="text-right">Actions</TableHeader>
-            </TableRow>
-          </TableHead>
-          <tbody>
-            {isLoadingQuotes ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                  Loading quotes...
-                </TableCell>
-              </TableRow>
-            ) : quotes.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                  No quotes found. Click &quot;Create Quote&quot; to build one.
-                </TableCell>
-              </TableRow>
-            ) : (
-              quotes.map((q) => (
-                <TableRow key={q.id} data-demo={q.quote_number === "Q-2026-0001" ? "quotes-list-acme" : undefined}>
-                  <TableCell className="font-semibold text-slate-900">{q.quote_number}</TableCell>
-                  <TableCell className="font-medium text-slate-800">{q.title || "Untitled Quote"}</TableCell>
-                  <TableCell className="text-slate-600">{q.customer?.name || `Customer #${q.customer_id}`}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={q.status} />
-                  </TableCell>
-                  <TableCell className="font-semibold text-slate-900">
-                    ${Number(q.total_amount || q.grand_total || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </TableCell>
-                  <TableCell className="text-slate-500">{q.valid_until || "—"}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setActiveQuoteId(q.id);
-                        setQuoteNumber(q.quote_number);
-                        setQuoteName(q.title || "Quote " + q.quote_number);
-                        if (q.customer) setSelectedCustomer(q.customer);
-                        if (q.valid_until) setValidUntil(q.valid_until);
-                        if (q.description) setDescription(q.description);
-                        if (q.items && q.items.length > 0) setLineItems(q.items);
-                        setViewMode("builder");
-                      }}
-                    >
-                      Open
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </tbody>
-        </DataTable>
-      </div>
-    );
-  }
-
-  // ─── BUILDER VIEW (MATCHES REFERENCE IMAGE DIRECTLY) ────────────────────────
   return (
     <div className="space-y-6">
-      {/* ─── Top Page Header ────────────────────────────────────── */}
-      <div data-demo="quotes-header">
+      {notice && (
+        <div
+          className={`fixed top-5 right-5 z-50 max-w-md px-4 py-3 rounded-xl shadow-lg border text-sm font-medium ${
+            notice.type === "success"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-rose-50 text-rose-800 border-rose-200"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
+      {view.mode === "list" && (
+        <QuoteList onOpen={(id) => setView({ mode: "detail", id })} onNew={() => setView({ mode: "new" })} />
+      )}
+      {view.mode === "new" && (
+        <NewQuote
+          onCancel={() => setView({ mode: "list" })}
+          onCreated={(id) => setView({ mode: "detail", id })}
+          notify={notify}
+        />
+      )}
+      {view.mode === "detail" && (
+        <QuoteDetail
+          id={view.id}
+          onBack={() => setView({ mode: "list" })}
+          onOpen={(id) => setView({ mode: "detail", id })}
+          notify={notify}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── List ───────────────────────────────────────────────────────────────────
+
+function QuoteList({ onOpen, onNew }: { onOpen: (id: number) => void; onNew: () => void }) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+
+  const { data: quotes = [], isLoading, error } = useQuery<Quote[]>({
+    queryKey: ["quotes", status, search],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (status !== "ALL") params.append("status", status);
+      if (search.trim()) params.append("search", search.trim());
+      const qs = params.toString();
+      return api.get<Quote[]>(qs ? `/quotes/?${qs}` : "/quotes/");
+    },
+  });
+
+  return (
+    <>
       <PageHeader
-        title="Create Quote"
-        description="Configure products, apply pricing, and generate a professional quote."
-        onBack={() => setViewMode("list")}
-        backLabel="Back to Quotes"
+        title="Quotes"
+        description="Build, approve, send and track customer quotes."
         actions={
-          <>
-            <Button
-              variant="secondary"
-              icon={<Save size={15} />}
-              onClick={handleSaveDraft}
-              isLoading={createQuoteMutation.isPending}
-            >
-              Save Draft
-            </Button>
-            <Button
-              variant="secondary"
-              icon={<Share2 size={15} />}
-              onClick={() => alert("Share link copied to clipboard!")}
-            >
-              Share
-            </Button>
-            <Button
-              variant="primary"
-              data-demo="quotes-submit"
-              icon={<ArrowRight size={15} />}
-              iconPosition="right"
-              onClick={handleSubmit}
-              isLoading={submitQuoteMutation.isPending}
-            >
-              Review & Submit
-            </Button>
-          </>
+          <Button variant="primary" icon={<Plus size={15} />} onClick={onNew}>
+            New Quote
+          </Button>
         }
       />
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs">
+        <SearchBar value={search} onChangeValue={setSearch} placeholder="Search by quote number or title..." className="w-full sm:w-80" />
+        <FilterSelect value={status} onChange={(e) => setStatus(e.target.value)} label="Status">
+          <option value="ALL">All Statuses</option>
+          {["DRAFT", "SUBMITTED", "APPROVED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"].map((s) => (
+            <option key={s} value={s}>
+              {s.charAt(0) + s.slice(1).toLowerCase()}
+            </option>
+          ))}
+        </FilterSelect>
       </div>
+      <DataTable>
+        <TableHead>
+          <TableRow>
+            <TableHeader>Quote #</TableHeader>
+            <TableHeader>Title</TableHeader>
+            <TableHeader>Customer</TableHeader>
+            <TableHeader>Status</TableHeader>
+            <TableHeader>Total</TableHeader>
+            <TableHeader>Valid until</TableHeader>
+            <TableHeader className="text-right">Actions</TableHeader>
+          </TableRow>
+        </TableHead>
+        <tbody>
+          {isLoading ? (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-8 text-slate-500">Loading quotes…</TableCell>
+            </TableRow>
+          ) : error ? (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-8 text-rose-600">{errorMessage(error, "Could not load quotes.")}</TableCell>
+            </TableRow>
+          ) : quotes.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-8 text-slate-500">No quotes yet. Create the first one.</TableCell>
+            </TableRow>
+          ) : (
+            quotes.map((q) => (
+              <TableRow key={q.id} className="cursor-pointer" onClick={() => onOpen(q.id)}>
+                <TableCell className="font-semibold text-slate-900">
+                  {q.quote_number} <span className="text-slate-400 font-normal">v{q.version}</span>
+                </TableCell>
+                <TableCell className="text-slate-800">{q.title || "Untitled"}</TableCell>
+                <TableCell className="text-slate-600">{customerName(q.customer, q.customer_id)}</TableCell>
+                <TableCell><StatusBadge status={q.status} /></TableCell>
+                <TableCell className="font-semibold text-slate-900">{money(q.total_amount, q.currency)}</TableCell>
+                <TableCell className="text-slate-500">{fmtDate(q.valid_until)}</TableCell>
+                <TableCell className="text-right">
+                  <Button variant="secondary" size="sm" onClick={() => onOpen(q.id)}>Open</Button>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </tbody>
+      </DataTable>
+    </>
+  );
+}
 
-      {/* ─── Horizontal Stepper ─────────────────────────────────── */}
-      <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
-        <HorizontalStepper
-          steps={stepsList}
-          currentStep={currentStep}
-          onStepClick={(step) => setCurrentStep(step)}
-        />
-      </div>
+// ─── New quote ──────────────────────────────────────────────────────────────
 
-      {/* ─── Two-Column Enterprise Workspace ─────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ─── Left Column (8 cols): Main Content ─────────────── */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* Card 1: Customer Information */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-                  <Building size={17} />
-                </div>
-                <div>
-                  <CardTitle>Customer Information</CardTitle>
-                  <CardDescription>Select the customer for this quote.</CardDescription>
-                </div>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsCustomerModalOpen(true)}
-              >
-                Change Customer
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  {/* Purple/Blue Avatar */}
-                  <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-                    AC
-                  </div>
-                  <div>
-                    <h4 className="text-base font-bold text-slate-900 leading-tight">
-                      {selectedCustomer.name}
-                    </h4>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 font-medium">
-                      <span>{selectedCustomer.customer_number || "CUST-001"}</span>
-                      <span>•</span>
-                      <span>{selectedCustomer.industry || "Technology"}</span>
-                      <span>•</span>
-                      <span className="text-slate-600">{selectedCustomer.customer_type || "Enterprise"}</span>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-slate-500 mt-2">
-                      <span className="text-slate-600">{selectedCustomer.email || "sarah.johnson@acme.com"}</span>
-                      <span className="text-slate-600">{selectedCustomer.phone || "+1 (415) 555-0123"}</span>
-                    </div>
-                  </div>
-                </div>
+function NewQuote({
+  onCancel,
+  onCreated,
+  notify,
+}: {
+  onCancel: () => void;
+  onCreated: (id: number) => void;
+  notify: (t: string, type?: "success" | "error") => void;
+}) {
+  const queryClient = useQueryClient();
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [validUntil, setValidUntil] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [currency, setCurrency] = useState("USD");
 
-                <div className="text-xs space-y-1.5 border-t sm:border-t-0 sm:border-l border-slate-100 pt-3 sm:pt-0 sm:pl-6 text-slate-600">
-                  <div>
-                    <span className="text-slate-400">Account Manager:</span>{" "}
-                    <span className="font-semibold text-slate-800">Sarah Johnson</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Billing Address:</span>{" "}
-                    <span className="font-medium text-slate-800">
-                      123 Market Street, San Francisco, CA 94105, United States
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+  const { data: customers } = useQuery<{ items: CustomerSummary[] }>({
+    queryKey: ["customers-picker", customerSearch],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: "1", page_size: "50" });
+      if (customerSearch.trim()) params.append("search", customerSearch.trim());
+      return api.get<{ items: CustomerSummary[] }>(`/customers/?${params.toString()}`);
+    },
+  });
 
-          {/* Card 2: Quote Details */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-                  <FileText size={17} />
-                </div>
-                <div>
-                  <CardTitle>Quote Details</CardTitle>
-                  <CardDescription>Set up basic information for this quote.</CardDescription>
-                </div>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<ChevronDown size={14} />}
-                iconPosition="right"
-                onClick={() => alert("Templates: Standard SaaS, Enterprise Hardware, Implementation Services")}
-              >
-                Load Template
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Quote Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={quoteName}
-                    onChange={(e) => setQuoteName(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 shadow-2xs font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Quote Number
-                  </label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={quoteNumber}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 font-mono"
-                  />
-                  <span className="text-[10px] text-slate-400 mt-1 block">Auto-generated on save</span>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Valid Until <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative flex items-center">
-                    <input
-                      type="date"
-                      value={validUntil}
-                      onChange={(e) => setValidUntil(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 shadow-2xs"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Currency <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 shadow-2xs cursor-pointer font-medium"
-                  >
-                    <option value="USD">USD - US Dollar</option>
-                    <option value="EUR">EUR - Euro</option>
-                    <option value="GBP">GBP - British Pound</option>
-                  </select>
-                </div>
-              </div>
+  const create = useMutation({
+    mutationFn: () =>
+      api.post<Quote>("/quotes/", {
+        customer_id: customerId,
+        title: title || undefined,
+        description: description || undefined,
+        currency,
+        valid_until: toIsoEndOfDay(validUntil),
+        items: [],
+      }),
+    onSuccess: (q) => {
+      queryClient.invalidateQueries({ queryKey: ["quotes"] });
+      notify(`Draft ${q.quote_number} created. Add products below.`);
+      onCreated(q.id);
+    },
+    onError: (e) => notify(errorMessage(e, "Failed to create quote."), "error"),
+  });
 
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="block text-xs font-semibold text-slate-700">Description</label>
-                  <span className="text-[11px] text-slate-400">{description.length}/500</span>
-                </div>
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={500}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 shadow-2xs leading-relaxed"
-                />
-              </div>
-            </CardContent>
-          </Card>
+  const inputCls = "w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500";
 
-          {/* Card 3: Products in this Quote */}
-          <Card data-demo="quotes-lines">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-                  <Package size={17} />
-                </div>
-                <div>
-                  <CardTitle>Products in this Quote</CardTitle>
-                  <CardDescription>Add and configure products for your quote.</CardDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  icon={<Plus size={14} className="text-blue-600" />}
-                  onClick={() => setIsProductPickerOpen(true)}
-                >
-                  Add Products
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={<Layers size={14} />}
-                  onClick={() => alert("Opening Bundle Configurator...")}
-                >
-                  Configure Bundle
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <DataTable className="border-0 rounded-none">
-                <TableHead>
-                  <TableRow>
-                    <TableHeader className="w-10">#</TableHeader>
-                    <TableHeader>Product</TableHeader>
-                    <TableHeader>Configuration</TableHeader>
-                    <TableHeader>Billing Type</TableHeader>
-                    <TableHeader className="w-20">Qty</TableHeader>
-                    <TableHeader>Unit Price</TableHeader>
-                    <TableHeader className="w-24">Discount</TableHeader>
-                    <TableHeader>Total</TableHeader>
-                    <TableHeader className="w-20 text-right">Actions</TableHeader>
-                  </TableRow>
-                </TableHead>
-                <tbody>
-                  {lineItems.map((item, index) => {
-                    const isConfigured = item.configuration_status === "CONFIGURED";
-                    return (
-                      <TableRow key={item.id} data-demo={item.sku === "DEV-LAP-001" ? "quote-line-latitude" : undefined}>
-                        <TableCell className="text-slate-400 font-medium">{index + 1}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-600">
-                              {item.sku?.includes("LAP") ? (
-                                <Laptop size={14} />
-                              ) : item.sku?.includes("SaaS") || item.sku?.includes("TIER") ? (
-                                <Cloud size={14} className="text-blue-600" />
-                              ) : (
-                                <Wrench size={14} className="text-teal-600" />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-semibold text-slate-900 text-xs">
-                                {item.product_name}
-                              </div>
-                              <div className="text-[11px] text-slate-400 font-mono">{item.sku}</div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {isConfigured ? (
-                            <span className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                              <Check size={12} className="stroke-[3] mr-1" />
-                              Configured {item.configuration_version || "v1.0"}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center text-xs text-slate-600">
-                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5" />
-                              Standard
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[10px] border border-slate-200">
-                            {item.billing_type}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <input
-                            type="number"
-                            min={1}
-                            value={item.quantity}
-                            onChange={(e) => handleQuantityChange(item.id, Number(e.target.value))}
-                            className="w-14 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-center font-semibold text-slate-800 focus:outline-none focus:border-blue-500 shadow-2xs"
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium text-slate-800">
-                          ${Number(item.unit_price).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              value={item.discount_percentage}
-                              onChange={(e) => handleDiscountChange(item.id, Number(e.target.value))}
-                              className="w-12 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs text-center font-semibold text-amber-700 focus:outline-none focus:border-blue-500 shadow-2xs"
-                            />
-                            <span className="text-xs font-bold text-amber-600">%</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-bold text-slate-900">
-                          ${Number(item.line_total).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => alert(`Edit configuration for ${item.product_name}`)}
-                              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                              title="Edit item"
-                            >
-                              <Edit size={14} />
-                            </button>
-                            <button
-                              onClick={() => handleRemoveLine(item.id)}
-                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Remove item"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </tbody>
-              </DataTable>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ─── Right Column (4 cols): Sidebar & Metrics ───────────── */}
-        <div className="lg:col-span-4 space-y-6">
-          <Card data-demo="quotes-summary">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-                  <TrendingUp size={15} />
-                </div>
-                <CardTitle className="text-sm">Quote Summary</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-2">
-              <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Subtotal</span>
-                  <span className="font-semibold text-slate-900">
-                    ${subtotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Discount</span>
-                  <span className="font-semibold text-emerald-600">
-                    -${discountAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-slate-400">
-                  <span>Tax (Not included)</span>
-                  <span>—</span>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-3 flex justify-between items-baseline">
-                <span className="text-xs font-bold text-slate-700">Total (USD)</span>
-                <span className="text-xl font-extrabold text-slate-900 tracking-tight">
-                  ${totalUSD.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-
-              {/* Expected Margin Banner Pill */}
-              <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">
-                  <TrendingUp size={14} className="text-emerald-600" />
-                  <span>Expected Margin</span>
-                  <Info size={12} className="text-emerald-500 cursor-pointer" />
-                </div>
-                <div className="text-right">
-                  <div className="font-bold text-emerald-800">{expectedMarginPercent}%</div>
-                  <div className="text-[10px] text-emerald-600 font-medium">
-                    ${expectedMarginAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card 2: Quote Progress */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Quote Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-5">
-                <CircularProgress current={3} total={5} size={70} strokeWidth={6} />
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <CheckCircle size={14} className="text-emerald-600" />
-                    <span>Customer Selected</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <CheckCircle size={14} className="text-emerald-600" />
-                    <span>Products Added</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-700 font-medium">
-                    <CheckCircle size={14} className="text-emerald-600" />
-                    <span>Configuration Complete</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-300" />
-                    <span>Pricing Calculated</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-300" />
-                    <span>Ready to Submit</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card 3: Recent Activity */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-2">
-                  <Clock size={15} className="text-slate-500" />
-                  <CardTitle className="text-sm">Recent Activity</CardTitle>
-                </div>
-                <button
-                  onClick={() => alert("Viewing audit timeline...")}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
-                >
-                  View All
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3.5 pt-1 text-xs">
-              <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0 mt-0.5">
-                  <Laptop size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800 leading-tight">Product configured</p>
-                  <p className="text-[11px] text-slate-500 truncate">Dell Latitude 7440</p>
-                </div>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap">2 mins ago</span>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0 mt-0.5">
-                  <Building size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800 leading-tight">Customer selected</p>
-                  <p className="text-[11px] text-slate-500 truncate">Acme Corporation</p>
-                </div>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap">5 mins ago</span>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0 mt-0.5">
-                  <FileText size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800 leading-tight">Quote created</p>
-                  <p className="text-[11px] text-slate-500 truncate">by Aarav lunkad</p>
-                </div>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap">10 mins ago</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card 4: Next Steps Callout */}
-          <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-4 shadow-2xs">
-            <div className="flex items-center gap-2 text-blue-900 font-bold text-xs mb-3">
-              <Sparkles size={15} className="text-blue-600" />
-              <span>Next Steps</span>
+  return (
+    <>
+      <button onClick={onCancel} className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 cursor-pointer">
+        <ArrowLeft size={14} /> Back to quotes
+      </button>
+      <PageHeader title="New Quote" description="Choose the customer, then add products on the next screen." />
+      <Card>
+        <CardContent className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-xs font-semibold text-slate-700">Customer *</label>
+            <input className={inputCls} placeholder="Search customers…" value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} />
+            <select
+              size={6}
+              className={inputCls}
+              value={customerId ?? ""}
+              onChange={(e) => setCustomerId(Number(e.target.value))}
+            >
+              {(customers?.items ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {customerName(c)} {c.customer_number ? `(${c.customer_number})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">Quote title</label>
+            <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Network refresh – Phase 1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Valid until</label>
+              <input type="date" className={inputCls} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
             </div>
-            <div className="space-y-2 text-xs text-slate-700">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  defaultChecked
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                />
-                <span className="font-medium text-slate-700">Review pricing and margins</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                />
-                <span className="text-slate-600">Add optional products</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                />
-                <span className="text-slate-600">Generate PDF quote</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                />
-                <span className="text-slate-600">Submit for approval</span>
-              </label>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Currency</label>
+              <select className={inputCls} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <option>USD</option>
+              </select>
             </div>
           </div>
+          <div className="md:col-span-2 space-y-1">
+            <label className="text-xs font-semibold text-slate-700">Description</label>
+            <textarea className={inputCls} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div className="md:col-span-2 flex justify-end gap-2">
+            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+            <Button variant="primary" disabled={!customerId || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? "Creating…" : "Create draft"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+// ─── Detail ─────────────────────────────────────────────────────────────────
+
+function QuoteDetail({
+  id,
+  onBack,
+  onOpen,
+  notify,
+}: {
+  id: number;
+  onBack: () => void;
+  onOpen: (id: number) => void;
+  notify: (t: string, type?: "success" | "error") => void;
+}) {
+  const queryClient = useQueryClient();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [aiSummary, setAiSummary] = useState<{ summary_text: string; explanation: string; source: string } | null>(null);
+  const [pending, setPending] = useState<PendingLine | null>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? sessionStorage.getItem(PENDING_LINE_KEY) : null;
+      return raw ? (JSON.parse(raw) as PendingLine) : null;
+    } catch {
+      return null; // malformed handoff
+    }
+  });
+
+  const { data: quote, isLoading, error } = useQuery<Quote>({
+    queryKey: ["quote", id],
+    queryFn: () => api.get<Quote>(`/quotes/${id}`),
+  });
+
+  const { data: documents = [] } = useQuery<QuoteDocument[]>({
+    queryKey: ["quote-documents", id],
+    queryFn: () => api.get<QuoteDocument[]>(`/documents/quote/${id}`),
+  });
+  const { data: emails = [] } = useQuery<EmailLog[]>({
+    queryKey: ["quote-emails", id],
+    queryFn: () => api.get<EmailLog[]>(`/emails/quote/${id}`),
+  });
+  const { data: sf } = useQuery<{ connected: boolean }>({
+    queryKey: ["salesforce-status"],
+    queryFn: () => api.get<{ connected: boolean }>("/integrations/salesforce/status"),
+  });
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["quote", id] });
+    queryClient.invalidateQueries({ queryKey: ["quotes"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["approval-requests"] });
+  };
+  const fail = (e: unknown) => notify(errorMessage(e), "error");
+
+  const addLine = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.post(`/quotes/${id}/items`, body),
+    onSuccess: () => refresh(),
+    onError: fail,
+  });
+  const updateLine = useMutation({
+    mutationFn: ({ itemId, body }: { itemId: number; body: Record<string, unknown> }) =>
+      api.put(`/quotes/${id}/items/${itemId}`, body),
+    onSuccess: () => refresh(),
+    onError: fail,
+  });
+  const removeLine = useMutation({
+    mutationFn: (itemId: number) => api.delete(`/quotes/${id}/items/${itemId}`),
+    onSuccess: () => refresh(),
+    onError: fail,
+  });
+  const action = useMutation({
+    mutationFn: ({ path, label }: { path: string; label: string }) =>
+      api.post<Quote>(`/quotes/${id}/${path}`).then((q) => ({ q, label })),
+    onSuccess: ({ q, label }) => {
+      refresh();
+      notify(label);
+      if (q.id !== id) onOpen(q.id);
+    },
+    onError: fail,
+  });
+  const generate = useMutation({
+    mutationFn: () => api.post<QuoteDocument>("/documents/generate", { quote_id: id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["quote-documents", id] });
+      notify("Proposal PDF generated.");
+    },
+    onError: fail,
+  });
+  const summarize = useMutation({
+    mutationFn: () => api.post<{ summary_text: string; explanation: string; source: string }>("/ai/quote-summary", { quote_id: id }),
+    onSuccess: setAiSummary,
+    onError: fail,
+  });
+  const syncSf = useMutation({
+    mutationFn: () => api.post<{ status: string; error_summary?: string | null }>(`/integrations/salesforce/sync-quote/${id}`),
+    onSuccess: (log) => {
+      refresh();
+      if (log.status === "success") notify("Synced to Salesforce.");
+      else notify(log.error_summary || "Salesforce sync failed.", "error");
+    },
+    onError: fail,
+  });
+
+  const downloadPdf = async (docId: number) => {
+    try {
+      const blob = await api.download(`/documents/${docId}/download`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${quote?.quote_number ?? "quote"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const addPendingLine = () => {
+    if (!pending) return;
+    addLine.mutate(
+      {
+        product_id: pending.product_id,
+        quantity: pending.quantity,
+        discount_percentage: 0,
+        configuration_id: pending.configuration_id,
+        configuration_snapshot: pending.configuration_snapshot,
+      },
+      {
+        onSuccess: () => {
+          sessionStorage.removeItem(PENDING_LINE_KEY);
+          setPending(null);
+          notify("Configured product added to the quote.");
+        },
+      }
+    );
+  };
+
+  if (isLoading) return <p className="text-sm text-slate-500">Loading quote…</p>;
+  if (error || !quote) return <p className="text-sm text-rose-600">{errorMessage(error, "Quote not found.")}</p>;
+
+  const isDraft = quote.status === "DRAFT";
+  const canDeliver = ["APPROVED", "SENT", "ACCEPTED"].includes(quote.status);
+  const showMargin = quote.margin_percentage != null;
+
+  return (
+    <>
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 cursor-pointer">
+        <ArrowLeft size={14} /> Back to quotes
+      </button>
+      <PageHeader
+        title={`${quote.quote_number} · v${quote.version}`}
+        description={`${quote.title || "Untitled quote"} — ${customerName(quote.customer, quote.customer_id)}`}
+        actions={<StatusBadge status={quote.status} />}
+      />
+
+      {pending && isDraft && (
+        <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-blue-200 bg-blue-50 text-sm text-blue-900">
+          <span>
+            Configured product ready: <b>{pending.product_name}</b> × {pending.quantity}
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" onClick={addPendingLine} disabled={addLine.isPending}>Add to this quote</Button>
+            <Button size="sm" variant="secondary" onClick={() => { sessionStorage.removeItem(PENDING_LINE_KEY); setPending(null); }}>Dismiss</Button>
+          </div>
         </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2">
+        {isDraft && (
+          <>
+            <Button variant="secondary" icon={<Plus size={14} />} onClick={() => setPickerOpen(true)}>Add product</Button>
+            <Button
+              variant="primary"
+              icon={<Send size={14} />}
+              disabled={quote.items.length === 0 || action.isPending}
+              onClick={() => action.mutate({ path: "submit", label: "Quote submitted. Check Approvals if review is required." })}
+            >
+              Submit for approval
+            </Button>
+          </>
+        )}
+        {canDeliver && (
+          <>
+            <Button variant="secondary" icon={<FileText size={14} />} onClick={() => generate.mutate()} disabled={generate.isPending}>
+              {generate.isPending ? "Generating…" : "Generate PDF"}
+            </Button>
+            <Button variant="secondary" icon={<Mail size={14} />} disabled={documents.length === 0} onClick={() => setEmailOpen(true)}>
+              Email proposal
+            </Button>
+            {quote.status !== "ACCEPTED" && (
+              <Button variant="success" icon={<CheckCircle size={14} />} onClick={() => action.mutate({ path: "accept", label: "Quote marked as accepted." })}>
+                Mark accepted
+              </Button>
+            )}
+            {sf?.connected && (
+              <Button variant="secondary" icon={<Cloud size={14} />} onClick={() => syncSf.mutate()} disabled={syncSf.isPending}>
+                Sync to Salesforce
+              </Button>
+            )}
+          </>
+        )}
+        <Button variant="secondary" icon={<Sparkles size={14} />} onClick={() => summarize.mutate()} disabled={summarize.isPending}>
+          {summarize.isPending ? "Analysing…" : "AI summary"}
+        </Button>
+        {["APPROVED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"].includes(quote.status) && (
+          <Button variant="secondary" icon={<Copy size={14} />} onClick={() => action.mutate({ path: "revise", label: "New revision created as a draft." })}>
+            Revise
+          </Button>
+        )}
+        {!["CANCELLED", "REJECTED", "ACCEPTED", "EXPIRED"].includes(quote.status) && (
+          <Button variant="danger" icon={<XCircle size={14} />} onClick={() => { if (confirm("Cancel this quote?")) action.mutate({ path: "cancel", label: "Quote cancelled." }); }}>
+            Cancel quote
+          </Button>
+        )}
       </div>
 
-      {/* ─── Modal: Customer Picker ─────────────────────────────── */}
-      <Modal
-        isOpen={isCustomerModalOpen}
-        onClose={() => setIsCustomerModalOpen(false)}
-        title="Select Customer"
-        description="Choose an existing account from your CRM database."
-        maxWidth="lg"
-      >
-        <div className="space-y-3">
-          {customerList.map((cust) => (
-            <div
-              key={cust.id}
-              onClick={() => {
-                setSelectedCustomer(cust);
-                setIsCustomerModalOpen(false);
-              }}
-              className="p-3 border border-slate-200 rounded-lg hover:border-blue-500 hover:bg-blue-50/50 cursor-pointer flex items-center justify-between transition-all"
-            >
-              <div>
-                <div className="font-semibold text-xs text-slate-900">{cust.name}</div>
-                <div className="text-[11px] text-slate-500">{cust.email || "No email"} • {cust.customer_number || "CUST"}</div>
-              </div>
-              <Button size="sm" variant="secondary">Select</Button>
-            </div>
-          ))}
-          {customerList.length === 0 && (
-            <p className="text-xs text-slate-500 text-center py-4">No customers found.</p>
-          )}
-        </div>
-      </Modal>
+      {aiSummary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles size={14} className="text-teal-600" /> AI summary
+              <span className="text-[10px] font-medium text-slate-400 uppercase">{aiSummary.source === "gemini" ? "Gemini" : "Data-driven"}</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-700 space-y-2">
+            <p>{aiSummary.summary_text}</p>
+            <p className="text-slate-500">{aiSummary.explanation}</p>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* ─── Modal: Product Picker ──────────────────────────────── */}
-      <Modal
-        isOpen={isProductPickerOpen}
-        onClose={() => setIsProductPickerOpen(false)}
-        title="Add Products to Quote"
-        description="Select products from the catalog to add to this quote."
-        maxWidth="xl"
-      >
-        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-          {activeProducts.map((prod) => (
-            <div
-              key={prod.id}
-              className="p-3 border border-slate-200 rounded-lg flex items-center justify-between hover:bg-slate-50 transition-colors"
-            >
-              <div>
-                <div className="font-semibold text-xs text-slate-900">{prod.name}</div>
-                <div className="text-[11px] text-slate-400 font-mono">
-                  {prod.sku} • {prod.billing_type}
+      {/* Line items */}
+      <DataTable>
+        <TableHead>
+          <TableRow>
+            <TableHeader>Product</TableHeader>
+            <TableHeader>Billing</TableHeader>
+            <TableHeader className="text-right">Qty</TableHeader>
+            <TableHeader className="text-right">Unit price</TableHeader>
+            <TableHeader className="text-right">Disc %</TableHeader>
+            <TableHeader className="text-right">Total</TableHeader>
+            {showMargin && <TableHeader className="text-right">Margin</TableHeader>}
+            {isDraft && <TableHeader />}
+          </TableRow>
+        </TableHead>
+        <tbody>
+          {quote.items.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="text-center py-8 text-slate-500">No products yet.</TableCell>
+            </TableRow>
+          ) : (
+            quote.items.map((it) => (
+              <TableRow key={it.id}>
+                <TableCell>
+                  <div className="font-semibold text-slate-900">{it.product_name}</div>
+                  <div className="text-[11px] text-slate-400 font-mono">
+                    {it.sku} {it.configuration_id ? "· configured" : ""}
+                  </div>
+                </TableCell>
+                <TableCell>{it.billing_type}</TableCell>
+                <TableCell className="text-right">
+                  {isDraft ? (
+                    <NumberCell
+                      key={`q-${it.id}-${it.quantity}`}
+                      value={it.quantity}
+                      min={1}
+                      step={1}
+                      onCommit={(v) => updateLine.mutate({ itemId: it.id, body: { quantity: v } })}
+                    />
+                  ) : (
+                    it.quantity
+                  )}
+                </TableCell>
+                <TableCell className="text-right">{money(it.unit_price, it.currency)}</TableCell>
+                <TableCell className="text-right">
+                  {isDraft ? (
+                    <NumberCell
+                      key={`d-${it.id}-${it.discount_percentage}`}
+                      value={Number(it.discount_percentage)}
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      onCommit={(v) => updateLine.mutate({ itemId: it.id, body: { discount_percentage: v } })}
+                    />
+                  ) : (
+                    Number(it.discount_percentage).toFixed(1)
+                  )}
+                </TableCell>
+                <TableCell className="text-right font-semibold">{money(it.total_price, it.currency)}</TableCell>
+                {showMargin && (
+                  <TableCell className="text-right text-slate-500">
+                    {it.margin_percentage != null ? `${Number(it.margin_percentage).toFixed(1)}%` : "—"}
+                  </TableCell>
+                )}
+                {isDraft && (
+                  <TableCell className="text-right">
+                    <button onClick={() => removeLine.mutate(it.id)} className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove line">
+                      <Trash2 size={14} />
+                    </button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))
+          )}
+        </tbody>
+      </DataTable>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Documents & emails */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Proposal documents & delivery</CardTitle>
+              <CardDescription>PDFs are generated once a quote is approved.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {documents.length === 0 && emails.length === 0 && <p className="text-slate-500">Nothing generated or sent yet.</p>}
+              {documents.map((d) => (
+                <div key={d.id} className="flex items-center justify-between">
+                  <span className="text-slate-700">PDF · {new Date(d.generated_at + "Z").toLocaleString()}</span>
+                  <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={() => downloadPdf(d.id)}>Download</Button>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-xs text-slate-900">
-                  ${Number(prod.base_price).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                </span>
-                <Button size="sm" variant="primary" onClick={() => handleAddProduct(prod)}>
-                  Add
-                </Button>
-              </div>
+              ))}
+              {emails.map((m) => (
+                <div key={m.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2">
+                  <div>
+                    <div className="text-slate-800">{m.subject}</div>
+                    <div className="text-xs text-slate-500">
+                      to {m.recipient} · {new Date(m.sent_at + "Z").toLocaleString()}
+                    </div>
+                    {m.error_message && <div className="text-xs text-rose-600 mt-0.5">{m.error_message}</div>}
+                  </div>
+                  <StatusBadge status={m.status === "sent" ? "APPROVED" : "REJECTED"} className="shrink-0" showDot={false} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Audit */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Activity</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              {quote.audit_logs.length === 0 && <p className="text-slate-500">No activity recorded.</p>}
+              {quote.audit_logs.map((a) => (
+                <div key={a.id} className="flex justify-between gap-3 border-b border-slate-100 pb-1.5">
+                  <span className="font-medium text-slate-700">{a.action.replace(/_/g, " ").toLowerCase()}</span>
+                  <span className="text-slate-400">
+                    {a.user_role ? `${a.user_role} · ` : ""}
+                    {new Date(a.timestamp).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Totals */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Totals</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Row label="Subtotal" value={money(quote.subtotal, quote.currency)} />
+            {Number(quote.discount_amount) > 0 && <Row label="Discount" value={`-${money(quote.discount_amount, quote.currency)}`} />}
+            {Number(quote.tax_amount) > 0 && <Row label="Tax" value={money(quote.tax_amount, quote.currency)} />}
+            <div className="border-t border-slate-200 pt-2">
+              <Row label="Total" value={money(quote.total_amount, quote.currency)} strong />
             </div>
-          ))}
-          {activeProducts.length === 0 && (
-            <p className="text-xs text-slate-500 text-center py-4">No active catalog products available.</p>
+            {showMargin && <Row label="Blended margin" value={`${Number(quote.margin_percentage).toFixed(1)}%`} />}
+            <Row label="Valid until" value={fmtDate(quote.valid_until)} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <ProductPicker
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={(p) => {
+          addLine.mutate({ product_id: p.id, quantity: 1, discount_percentage: 0 }, { onSuccess: () => setPickerOpen(false) });
+        }}
+      />
+      <EmailModal
+        isOpen={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        quoteId={id}
+        onSent={(ok, msg) => {
+          queryClient.invalidateQueries({ queryKey: ["quote-emails", id] });
+          refresh();
+          notify(msg, ok ? "success" : "error");
+          if (ok) setEmailOpen(false);
+        }}
+      />
+    </>
+  );
+}
+
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-slate-500">{label}</span>
+      <span className={strong ? "font-bold text-slate-900 text-base" : "font-medium text-slate-800"}>{value}</span>
+    </div>
+  );
+}
+
+/** Numeric input that commits on blur/Enter so every keystroke doesn't trigger a repricing call. */
+function NumberCell({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max?: number;
+  step: number;
+  onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const commit = () => {
+    let n = Number(text);
+    if (Number.isNaN(n)) n = value;
+    n = Math.max(min, max != null ? Math.min(max, n) : n);
+    setText(String(n));
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <input
+      type="number"
+      value={text}
+      min={min}
+      max={max}
+      step={step}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      className="w-20 px-2 py-1 text-right border border-slate-200 rounded-md text-sm focus:outline-none focus:border-blue-500"
+    />
+  );
+}
+
+function ProductPicker({ isOpen, onClose, onPick }: { isOpen: boolean; onClose: () => void; onPick: (p: Product) => void }) {
+  const [search, setSearch] = useState("");
+  const { data: products = [], isLoading } = useQuery<Product[]>({
+    queryKey: ["product-picker", search],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: "30", status: "active" });
+      if (search.trim()) params.append("search", search.trim());
+      return api.get<Product[]>(`/products?${params.toString()}`);
+    },
+    enabled: isOpen,
+  });
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Add product" description="Prices are calculated by the pricing engine when the line is added." maxWidth="2xl">
+      <div className="space-y-3">
+        <SearchBar value={search} onChangeValue={setSearch} placeholder="Search by name or SKU…" />
+        <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
+          {isLoading ? (
+            <p className="p-4 text-sm text-slate-500">Loading…</p>
+          ) : products.length === 0 ? (
+            <p className="p-4 text-sm text-slate-500">No matching active products.</p>
+          ) : (
+            products.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p)}
+                className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-slate-50 cursor-pointer"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">{p.name}</div>
+                  <div className="text-[11px] text-slate-400 font-mono">{p.sku} · {p.billing_type}</div>
+                </div>
+                <span className="text-sm text-slate-600">{money(p.base_price, p.currency)}</span>
+              </button>
+            ))
           )}
         </div>
-      </Modal>
-    </div>
+      </div>
+    </Modal>
+  );
+}
+
+function EmailModal({
+  isOpen,
+  onClose,
+  quoteId,
+  onSent,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  quoteId: number;
+  onSent: (ok: boolean, msg: string) => void;
+}) {
+  const [recipient, setRecipient] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [source, setSource] = useState<string>("");
+
+  const draft = useMutation({
+    mutationFn: () =>
+      api.post<{ subject: string; body: string; recipient?: string | null; source: string }>("/ai/draft-email", { quote_id: quoteId }),
+    onSuccess: (d) => {
+      setSubject(d.subject);
+      setBody(d.body);
+      if (d.recipient) setRecipient(d.recipient);
+      setSource(d.source);
+    },
+  });
+  useEffect(() => {
+    if (isOpen) draft.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const send = useMutation({
+    mutationFn: () =>
+      api.post<EmailLog>("/emails/send", { quote_id: quoteId, recipient, subject, body }),
+    onSuccess: (log) =>
+      log.status === "sent"
+        ? onSent(true, `Proposal emailed to ${log.recipient}.`)
+        : onSent(false, log.error_message || "Email could not be delivered."),
+    onError: (e) => onSent(false, errorMessage(e, "Failed to send email.")),
+  });
+
+  const inputCls = "w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500";
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Email proposal"
+      description="The latest generated PDF is attached automatically."
+      maxWidth="2xl"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button variant="secondary" icon={<RefreshCw size={13} />} onClick={() => draft.mutate()} disabled={draft.isPending}>
+            Redraft
+          </Button>
+          <Button variant="primary" icon={<Send size={14} />} onClick={() => send.mutate()} disabled={!recipient || !subject || !body || send.isPending}>
+            {send.isPending ? "Sending…" : "Send"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {draft.isPending && <p className="text-xs text-slate-500">Drafting email…</p>}
+        {source && <p className="text-[11px] text-slate-400">Draft generated by {source === "gemini" ? "Gemini" : "the data-driven template"} — review before sending.</p>}
+        <input className={inputCls} placeholder="Recipient email" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
+        <input className={inputCls} placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+        <textarea className={inputCls} rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+      </div>
+    </Modal>
   );
 }

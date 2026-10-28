@@ -5,7 +5,7 @@
  * All domain hooks import from this module — never call fetch() directly in components.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,4 +84,30 @@ export const api = {
 
   delete: <T>(path: string) =>
     request<T>(path, { method: "DELETE" }),
+
+  /** Fetches an authenticated binary resource (e.g. a PDF) as a Blob. */
+  download: async (path: string): Promise<Blob> => {
+    const token = tokenStorage.get();
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error: APIError = await response.json().catch(() => ({
+        detail: "Download failed.",
+        error_code: "DOWNLOAD_ERROR",
+      }));
+      throw error;
+    }
+    return response.blob();
+  },
 };
+
+/** Extracts a readable message from an API error of any shape. */
+export function errorMessage(err: unknown, fallback = "Something went wrong."): string {
+  const detail = (err as { detail?: unknown })?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (typeof d === "string" ? d : (d as { msg?: string })?.msg ?? "")).filter(Boolean).join("; ") || fallback;
+  }
+  return fallback;
+}

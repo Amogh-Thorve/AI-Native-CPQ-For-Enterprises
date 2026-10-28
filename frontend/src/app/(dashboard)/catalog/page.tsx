@@ -36,8 +36,6 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { useDemoTour } from "@/components/demo/DemoTourProvider";
-import { DEMO_LATITUDE_ID } from "@/lib/demoMockData";
 import type {
   ProductRead,
   ProductCreate,
@@ -68,7 +66,6 @@ import {
 export default function ProductCatalogPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const { isActive: isDemoActive, flags: demoFlags, mockProducts, mockCategories } = useDemoTour();
 
   // Role permissions
   const isManager = user?.role === "manager" || user?.role === "admin";
@@ -132,15 +129,13 @@ export default function ProductCatalogPage() {
   }, [searchQuery]);
 
   // Fetch Categories
-  const { data: liveCategories = [] } = useQuery<CategoryRead[]>({
+  const { data: categories = [] } = useQuery<CategoryRead[]>({
     queryKey: ["categories"],
     queryFn: () => api.get<CategoryRead[]>("/categories"),
-    enabled: !isDemoActive,
   });
-  const categories = isDemoActive ? mockCategories : liveCategories;
 
   // Fetch Products
-  const { data: liveProducts = [], isLoading: isLiveLoading, isError, error } = useQuery<ProductRead[]>({
+  const { data: products = [], isLoading, isError, error } = useQuery<ProductRead[]>({
     queryKey: ["products", page, statusFilter, selectedCategories, debouncedSearch],
     queryFn: async () => {
       const offset = (page - 1) * pageSize;
@@ -151,33 +146,20 @@ export default function ProductCatalogPage() {
       if (selectedCategories.length > 0) {
         params.append("category_id", selectedCategories[0].toString());
       }
+      if (debouncedSearch) params.append("search", debouncedSearch);
+      if (statusFilter === "ACTIVE") params.append("status", "active");
+      if (statusFilter === "INACTIVE") params.append("status", "inactive");
       return api.get<ProductRead[]>(`/products?${params.toString()}`);
     },
     placeholderData: keepPreviousData,
-    enabled: !isDemoActive,
   });
-  const products = isDemoActive ? mockProducts : liveProducts;
-  const isLoading = isDemoActive ? false : isLiveLoading;
-
-  useEffect(() => {
-    if (!isDemoActive) return;
-    if (demoFlags.openProductRecord) {
-      setSelectedProductId(DEMO_LATITUDE_ID);
-      setActiveTab("overview");
-    } else {
-      setSelectedProductId(null);
-    }
-  }, [isDemoActive, demoFlags.openProductRecord]);
 
   // Fetch Single Product Details
-  const { data: liveSelectedProduct } = useQuery<ProductRead>({
+  const { data: selectedProduct } = useQuery<ProductRead>({
     queryKey: ["product", selectedProductId],
     queryFn: () => api.get<ProductRead>(`/products/${selectedProductId}`),
-    enabled: selectedProductId !== null && !isDemoActive,
+    enabled: selectedProductId !== null,
   });
-  const selectedProduct = isDemoActive
-    ? mockProducts.find((p) => p.id === selectedProductId)
-    : liveSelectedProduct;
 
   // Mutations
   const createProductMutation = useMutation({
@@ -274,7 +256,6 @@ export default function ProductCatalogPage() {
 
   const handleCreateProduct = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isDemoActive) return;
     const formData = new FormData(e.currentTarget);
     const data: ProductCreate = {
       sku: formData.get("sku") as string,
@@ -291,7 +272,7 @@ export default function ProductCatalogPage() {
 
   const handleEditProduct = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedProductId || isDemoActive) return;
+    if (!selectedProductId) return;
     const formData = new FormData(e.currentTarget);
     const data: ProductUpdate = {
       name: formData.get("name") as string,
@@ -314,7 +295,7 @@ export default function ProductCatalogPage() {
   return (
     <div className="space-y-6">
       {/* ─── Page Header ────────────────────────────────────────── */}
-      <div data-demo="catalog-header">
+      <div>
       <PageHeader
         title="Product Catalog"
         description="Browse and manage your products, pricing models, and price books"
@@ -417,7 +398,7 @@ export default function ProductCatalogPage() {
         {/* Left: Products List or Grid */}
         <div className={`transition-all duration-200 ${selectedProductId ? "w-full lg:w-7/12" : "w-full"}`}>
           {viewMode === "list" ? (
-            <Card data-demo="catalog-table">
+            <Card>
               <DataTable className="border-0 rounded-none">
                 <TableHead>
                   <TableRow>
@@ -454,11 +435,6 @@ export default function ProductCatalogPage() {
                       return (
                         <TableRow
                           key={p.id}
-                          data-demo={
-                            /latitude 7440/i.test(p.name) || p.sku === "DEV-LAP-001"
-                              ? "catalog-latitude"
-                              : undefined
-                          }
                           onClick={() => setSelectedProductId(p.id)}
                           className={`cursor-pointer ${selectedProductId === p.id ? "bg-blue-50/60" : ""}`}
                         >
@@ -524,11 +500,6 @@ export default function ProductCatalogPage() {
               {processedProducts.map((p) => (
                 <Card
                   key={p.id}
-                  data-demo={
-                    /latitude 7440/i.test(p.name) || p.sku === "DEV-LAP-001"
-                      ? "catalog-latitude"
-                      : undefined
-                  }
                   onClick={() => setSelectedProductId(p.id)}
                   className={`p-4 cursor-pointer hover:border-blue-400 transition-all ${selectedProductId === p.id ? "ring-2 ring-blue-500" : ""}`}
                 >

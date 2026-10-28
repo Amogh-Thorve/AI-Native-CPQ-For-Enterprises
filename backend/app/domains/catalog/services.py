@@ -46,8 +46,11 @@ class CatalogService:
             raise EntityNotFoundError(f"Product with ID {product_id} not found.")
         return product
 
-    async def list_products(self, limit: int = 100, offset: int = 0, category_id: Optional[int] = None) -> List[Product]:
-        return await self.product_repo.list(limit, offset, category_id)
+    async def list_products(
+        self, limit: int = 100, offset: int = 0, category_id: Optional[int] = None,
+        search: Optional[str] = None, is_active: Optional[bool] = None
+    ) -> List[Product]:
+        return await self.product_repo.list(limit, offset, category_id, search, is_active)
 
     async def create_category(self, schema: CategoryCreate) -> Category:
         existing = await self.category_repo.get_by_name(schema.name)

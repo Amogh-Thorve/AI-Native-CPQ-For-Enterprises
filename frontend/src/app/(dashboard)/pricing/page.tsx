@@ -26,8 +26,6 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { useDemoTour } from "@/components/demo/DemoTourProvider";
-import { DEMO_LATITUDE_ID } from "@/lib/demoMockData";
 import {
   Card,
   CardHeader,
@@ -109,14 +107,6 @@ interface PricingRule {
 export default function PricingEnginePage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const {
-    isActive: isDemoActive,
-    flags: demoFlags,
-    mockPricingProducts,
-    mockPricingRules,
-    mockPricingWaterfall,
-  } = useDemoTour();
-
   const isSalesRep = user?.role === "sales_rep";
   const isManager = user?.role === "manager";
   const isExecutive = user?.role === "executive" || user?.role === "admin";
@@ -156,27 +146,20 @@ export default function PricingEnginePage() {
   const [isCalcLoading, setIsCalcLoading] = useState(false);
 
   // Queries
-  const { data: liveEnrichedProducts = [], isLoading: isLoadingLiveProducts } = useQuery<EnrichedProduct[]>({
+  const { data: enrichedProducts = [], isLoading: isLoadingProducts } = useQuery<EnrichedProduct[]>({
     queryKey: ["enriched-products"],
     queryFn: () => api.get<EnrichedProduct[]>("/pricing/products"),
-    enabled: !isDemoActive,
   });
-  const enrichedProducts = isDemoActive ? (mockPricingProducts as EnrichedProduct[]) : liveEnrichedProducts;
-  const isLoadingProducts = isDemoActive ? false : isLoadingLiveProducts;
 
-  const { data: liveRules = [] } = useQuery<PricingRule[]>({
+  const { data: rules = [] } = useQuery<PricingRule[]>({
     queryKey: ["pricing-rules"],
     queryFn: () => api.get<PricingRule[]>("/pricing/rules"),
-    enabled: !isDemoActive,
   });
-  const rules = isDemoActive ? (mockPricingRules as PricingRule[]) : liveRules;
 
-  const { data: livePriceBooks = [] } = useQuery<any[]>({
+  const { data: priceBooks = [] } = useQuery<any[]>({
     queryKey: ["price-books"],
     queryFn: () => api.get<any[]>("/price-books"),
-    enabled: !isDemoActive,
   });
-  const priceBooks = isDemoActive ? [{ id: 1, name: "Standard Enterprise", is_active: true }] : livePriceBooks;
 
   // Set default product for calculator
   useEffect(() => {
@@ -188,7 +171,6 @@ export default function PricingEnginePage() {
   // Mutations
   const updateConfigMutation = useMutation({
     mutationFn: (payload: { id: number; data: any }) => {
-      if (isDemoActive) return Promise.resolve({});
       return api.post(`/pricing/products/${payload.id}/configuration`, payload.data);
     },
     onSuccess: () => {
@@ -203,7 +185,6 @@ export default function PricingEnginePage() {
 
   const activateMutation = useMutation({
     mutationFn: (id: number) => {
-      if (isDemoActive) return Promise.resolve({});
       return api.post(`/pricing/products/${id}/configuration/activate`);
     },
     onSuccess: () => {
@@ -213,7 +194,6 @@ export default function PricingEnginePage() {
 
   const deactivateMutation = useMutation({
     mutationFn: (id: number) => {
-      if (isDemoActive) return Promise.resolve({});
       return api.post(`/pricing/products/${id}/configuration/deactivate`);
     },
     onSuccess: () => {
@@ -224,11 +204,6 @@ export default function PricingEnginePage() {
   // Run Calculator
   const handleRunCalculator = async () => {
     if (!calcProductId) return;
-    if (isDemoActive) {
-      setCalcResult(mockPricingWaterfall as CalculateResponse);
-      setIsCalcLoading(false);
-      return;
-    }
     setIsCalcLoading(true);
     setCalcError(null);
     try {
@@ -249,25 +224,10 @@ export default function PricingEnginePage() {
   };
 
   useEffect(() => {
-    if (isDemoActive && demoFlags.showPricingWaterfall) {
-      setActiveTab("calculator");
-      setCalcProductId(String(DEMO_LATITUDE_ID));
-      setCalcQuantity(10);
-      setCalcDiscount("10.00");
-      setCalcResult(mockPricingWaterfall as CalculateResponse);
-      return;
-    }
-    if (isDemoActive && demoFlags.pricingTab === "configurations") {
-      setActiveTab("configurations");
-    }
-  }, [isDemoActive, demoFlags.showPricingWaterfall, demoFlags.pricingTab, mockPricingWaterfall]);
-
-  useEffect(() => {
-    if (isDemoActive) return;
     if (calcProductId) {
       handleRunCalculator();
     }
-  }, [calcProductId, calcQuantity, calcDiscount, isDemoActive]);
+  }, [calcProductId, calcQuantity, calcDiscount]);
 
   // Filtered Products
   const filteredProducts = enrichedProducts.filter((p) => {
@@ -290,7 +250,7 @@ export default function PricingEnginePage() {
   return (
     <div className="space-y-6">
       {/* ─── Page Header ────────────────────────────────────────── */}
-      <div data-demo="pricing-header">
+      <div>
       <PageHeader
         title="Pricing Engine"
         description="Configure pricing methods, price lists and pricing rules."
@@ -445,7 +405,7 @@ export default function PricingEnginePage() {
             </div>
           </div>
 
-          <Card data-demo="pricing-table">
+          <Card>
             <DataTable className="border-0 rounded-none">
               <TableHead>
                 <TableRow>
@@ -476,7 +436,7 @@ export default function PricingEnginePage() {
                   filteredProducts.map((p) => (
                     <TableRow
                       key={p.id}
-                      data-demo={p.sku === "DEV-LAP-001" ? "pricing-latitude" : undefined}
+                     
                     >
                       <TableCell className="font-semibold text-slate-900">{p.name}</TableCell>
                       <TableCell className="font-mono text-slate-500 text-[11px]">{p.sku}</TableCell>
@@ -566,7 +526,7 @@ export default function PricingEnginePage() {
 
       {/* ─── TAB 5: CALCULATOR & WATERFALL ──────────────────────── */}
       {activeTab === "calculator" && (
-        <div data-demo="pricing-calculator" className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Step 1: Input section (4 cols) */}
           <div className="lg:col-span-4">
             <Card>

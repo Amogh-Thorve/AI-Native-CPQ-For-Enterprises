@@ -23,8 +23,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
-import { useDemoTour } from "@/components/demo/DemoTourProvider";
-import { Button } from "@/components/ui/Button";
 
 interface NavLinkProps {
   href: string;
@@ -57,7 +55,6 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { isActive: isDemoActive, start: startDemo, stop: stopDemo } = useDemoTour();
   const [searchQuery, setSearchQuery] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
@@ -96,7 +93,7 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans antialiased">
       {/* ─── Top Bar ────────────────────────────────────────────── */}
-      <header className={cn("h-14 fixed top-0 inset-x-0 bg-white border-b border-slate-200/80 flex items-center justify-between px-6", isDemoActive ? "z-[70]" : "z-30")}>
+      <header className={"h-14 fixed top-0 inset-x-0 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 z-30"}>
         {/* Brand Logo */}
         <div className="flex items-center gap-2.5 w-60">
           <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200/70 flex items-center justify-center text-teal-600 shadow-2xs">
@@ -127,19 +124,6 @@ export default function DashboardLayout({
 
         {/* Right Section: Notifications & User Profile */}
         <div className="flex items-center gap-3.5">
-          <Button
-            variant={isDemoActive ? "secondary" : "outline"}
-            size="sm"
-            icon={<Sparkles size={14} className="text-teal-600" />}
-            onClick={isDemoActive ? stopDemo : startDemo}
-            className={cn(
-              isDemoActive
-                ? "border-teal-200 text-teal-800"
-                : "border-teal-200 text-teal-800 hover:bg-teal-50"
-            )}
-          >
-            {isDemoActive ? "Stop demo" : "Demo Mode"}
-          </Button>
           {/* Notifications */}
           <button
             className="relative p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -230,7 +214,7 @@ export default function DashboardLayout({
 
       {/* ─── Main Content Canvas ─────────────────────────────────── */}
       <div className="flex-1 pl-60 pt-14 flex flex-col min-h-screen">
-        <main data-demo="app-main" className="flex-1 p-8 max-w-7xl w-full mx-auto">{children}</main>
+        <main className="flex-1 p-8 max-w-7xl w-full mx-auto">{children}</main>
       </div>
     </div>
   );

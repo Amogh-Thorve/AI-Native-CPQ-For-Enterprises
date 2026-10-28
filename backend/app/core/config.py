@@ -42,9 +42,32 @@ class Settings(BaseSettings):
         description="Google Gemini API key for AI copilot functionality"
     )
 
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
+    # Company branding used on client-facing proposals
+    COMPANY_NAME: str = "Enterprise CPQ"
+    COMPANY_ADDRESS: str = ""
+    COMPANY_EMAIL: str = ""
+    QUOTE_TERMS: str = (
+        "Prices are quoted in the stated currency and are valid until the date shown. "
+        "Recurring charges (MRC) are billed monthly; non-recurring charges (NRC) are billed once. "
+        "Taxes, where applicable, are shown separately. Acceptance of this proposal constitutes agreement to these terms."
+    )
+
+    # Outbound email (SMTP). If SMTP_HOST is empty, sending fails with a clear error instead of faking success.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_USE_TLS: bool = True   # STARTTLS on SMTP_PORT
+    SMTP_USE_SSL: bool = False  # implicit TLS (typically port 465)
+
     # Salesforce Integration
     SALESFORCE_CLIENT_ID: str = ""
     SALESFORCE_CLIENT_SECRET: str = ""
+    SALESFORCE_LOGIN_URL: str = "https://login.salesforce.com"  # use https://test.salesforce.com for sandboxes
+    FRONTEND_URL: str = "http://localhost:3000"
     SALESFORCE_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/salesforce/callback"
 
 settings = Settings()
