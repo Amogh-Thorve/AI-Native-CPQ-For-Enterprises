@@ -2,7 +2,7 @@
 
 ## Current Architecture
 - **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Alembic, Pydantic v2. Domain-Driven Design (DDD) & Clean Architecture (Modular Monolith).
-- **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind CSS, shadcn/ui.
+- **Frontend**: Next.js 16.2 (App Router), React 19, TypeScript, Tailwind CSS v4, TanStack Query v5. Shared UI lives in `frontend/src/components/ui` (no component library).
 - **Database**: PostgreSQL (normalized, migrations managed via Alembic).
 
 ---
@@ -24,7 +24,10 @@
 │   │   │   ├── document/   # PDF Generation
 │   │   │   ├── email/      # Email Dispatcher
 │   │   │   ├── ai/         # Gemini AI Assistant
-│   │   │   └── integrations/ # CSV/Excel/Salesforce interfaces
+│   │   │   ├── integrations/ # CSV/Excel/Salesforce interfaces
+│   │   │   ├── tax/        # Tax rates by customer address
+│   │   │   ├── orders/     # Quote-to-order booking
+│   │   │   └── analytics/  # Dashboard KPIs
 │   │   └── main.py         # Entrypoint
 │   ├── alembic/            # Migrations folder
 │   ├── alembic.ini
@@ -47,6 +50,11 @@
 - [x] 9. **Email** (Fully implemented: Yes)--->✅
 - [x] 10. **AI** (Fully implemented: Yes)--->✅
 - [x] 11. **Integrations** (Fully implemented: Yes)--->✅
+- [x] 12. **Analytics Dashboard** (Backend: `/analytics/dashboard`; live KPIs scoped by role)--->✅
+- [x] 13. **Tax** (Rates matched by customer address: country/region, then country, then default; applied to quotes)--->✅
+- [x] 14. **Orders** (Quote-to-order booking from accepted quotes; PENDING → CONFIRMED → FULFILLED / CANCELLED)--->✅
+- [x] 15. **Customer Proposal Link** (Tokenised public page: view, PDF download, online accept/decline)--->✅
+- [x] 16. **AI-native layer** (Natural-language quote builder, deal insights, pipeline copilot, add-on suggestions; data-driven fallback when no Gemini key)--->✅
 
 ---
 

@@ -77,8 +77,8 @@ A production-quality, modular monolith **Configure, Price, Quote** platform buil
 ### 1. Clone and configure environment
 
 ```bash
-git clone https://github.com/your-org/cpq-pricing.git
-cd cpq-pricing
+git clone https://github.com/Amogh-Thorve/AI-Native-CPQ-For-Enterprises.git
+cd AI-Native-CPQ-For-Enterprises
 
 # Copy the environment template and fill in your values
 cp .env.example backend/.env
@@ -206,6 +206,7 @@ Frontend: **http://localhost:3000**
 ```bash
 make help        # Show all available commands
 make install     # Install Python + Node dependencies
+make demo        # Migrate, seed demo data, start backend and frontend
 make db-up       # Start PostgreSQL via Docker Compose
 make db-down     # Stop PostgreSQL container
 make migrate     # Run all pending Alembic migrations
@@ -240,7 +241,7 @@ make frontend    # Start the Next.js dev server
 ├── backend/
 │   ├── app/
 │   │   ├── core/              # Config, DB engine, security, exceptions
-│   │   └── domains/           # 11 business domains (DDD Modular Monolith)
+│   │   └── domains/           # 14 business domains (DDD Modular Monolith)
 │   │       ├── auth/          # JWT auth, RBAC, roles & permissions
 │   │       ├── customer/      # Customer & contact management
 │   │       ├── catalog/       # Products, categories, price books
@@ -251,7 +252,10 @@ make frontend    # Start the Next.js dev server
 │   │       ├── document/      # PDF quote generation
 │   │       ├── email/         # Email dispatcher
 │   │       ├── ai/            # Gemini AI copilot
-│   │       └── integrations/  # CSV/Excel import, Salesforce sync
+│   │       ├── integrations/  # CSV/Excel import, Salesforce sync, webhooks
+│   │       ├── tax/           # Tax rates matched by customer address
+│   │       ├── orders/        # Quote-to-order booking
+│   │       └── analytics/     # Dashboard KPIs
 │   ├── alembic/               # Database migrations
 │   ├── requirements.txt
 │   └── run.py                 # Dev server entrypoint
@@ -263,7 +267,7 @@ make frontend    # Start the Next.js dev server
 ├── scripts/
 │   ├── seed_dev.py            # Full dev environment seeder (users, roles, products, customers)
 │   └── seed_products.py       # Catalog-only seeder / cleaner
-├── docker-compose.yml         # PostgreSQL 16 service
+├── docker-compose.yml         # PostgreSQL 16, backend and frontend services
 ├── Makefile                   # Developer workflow shortcuts
 ├── .env.example               # Environment variable template
 └── PROJECT_STATE.md           # Living implementation tracker
@@ -346,6 +350,20 @@ python -m pytest -W ignore -q
 # Run frontend production build validation
 cd frontend && npm run build
 ```
+
+---
+
+## Reproducing results
+
+<!-- To be filled in: exact seed, environment and commands that reproduce the reported numbers. -->
+
+### Environment
+
+### Data
+
+### Commands
+
+### Expected outputs
 
 ---
 

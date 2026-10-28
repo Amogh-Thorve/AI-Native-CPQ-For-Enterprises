@@ -98,3 +98,7 @@ ehthumbs.db
 docker/data/
 docker/postgres-data/
 backend/storage/
+
+# ─── Secrets & tokens ──────────────────────────────────────
+.tmp_token.txt
+*.token

@@ -4,7 +4,7 @@
 # Usage: make <target>
 # Windows users without make: run the commands in each target manually.
 
-.PHONY: help db-up db-down migrate rollback backend frontend install
+.PHONY: help db-up db-down migrate rollback backend frontend install demo
 
 help:
 	@echo "CPQ Platform Developer Commands:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make backend     Start the FastAPI dev server (requires db-up)"
 	@echo "  make frontend    Start the Next.js dev server"
 	@echo "  make install     Install all Python + Node dependencies"
+	@echo "  make demo        Migrate, seed demo data, start backend + frontend"
 	@echo ""
 
 db-up:
@@ -39,3 +40,7 @@ frontend:
 install:
 	pip install -r backend/requirements.txt
 	cd frontend && npm install
+
+demo: db-up migrate
+	python scripts/seed_dev.py
+	$(MAKE) -j2 backend frontend
