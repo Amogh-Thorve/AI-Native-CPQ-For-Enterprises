@@ -424,11 +424,18 @@ class QuoteService:
         except Exception:
             pass
 
+    def assert_approval_current(self, quote: Quote) -> None:
+        """An approval covers one content hash. If the quote no longer matches it, sending or accepting is refused."""
+        from backend.app.domains.approval.snapshot import snapshot_hash
+        if quote.approved_snapshot_hash and snapshot_hash(quote) != quote.approved_snapshot_hash:
+            raise DomainValidationError("This quote changed after it was approved. Submit it for approval again.")
+
     async def mark_sent(self, quote_id: int, current_user: Optional[User] = None) -> Quote:
         """Moves an APPROVED quote to SENT once the proposal has been delivered to the customer."""
         quote = await self.get_quote(quote_id, current_user)
         if _status_str(quote.status) != QuoteStatus.APPROVED.value:
             return quote
+        self.assert_approval_current(quote)
         quote.status = QuoteStatus.SENT
         self.db.add(quote)
         await self.db.flush()
@@ -453,6 +460,7 @@ class QuoteService:
             raise DomainValidationError(f"Only APPROVED or SENT quotes can be accepted. Current status: {before}.")
         if quote.valid_until and quote.valid_until < datetime.now(timezone.utc):
             raise DomainValidationError("This quote has passed its validity date. Create a revision to re-quote.")
+        self.assert_approval_current(quote)
         quote.status = QuoteStatus.ACCEPTED
         self.db.add(quote)
         await self.db.flush()

@@ -6,11 +6,16 @@ from backend.app.domains.approval.models import ApprovalStatus
 
 class ApprovalPolicyBase(BaseModel):
     name: str
-    policy_type: Literal["DISCOUNT", "MARGIN"] = "DISCOUNT"
+    policy_type: str = "DISCOUNT"  # DISCOUNT | MARGIN | RULE (rule-engine rows added by defaults)
     discount_threshold: float = Field(default=0.0, ge=0.0, le=100.0)
     margin_threshold: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     role_required: str
     is_active: bool = True
+
+
+class ApprovalPolicyCreate(ApprovalPolicyBase):
+    """Legacy shape: one discount or margin threshold and the role that signs it off."""
+    policy_type: Literal["DISCOUNT", "MARGIN"] = "DISCOUNT"
 
     @model_validator(mode="after")
     def check_threshold(self):
@@ -20,8 +25,6 @@ class ApprovalPolicyBase(BaseModel):
             raise ValueError("discount_threshold must be greater than 0 for DISCOUNT policies")
         return self
 
-class ApprovalPolicyCreate(ApprovalPolicyBase):
-    pass
 
 class ApprovalPolicyUpdate(BaseModel):
     name: Optional[str] = None
@@ -30,8 +33,26 @@ class ApprovalPolicyUpdate(BaseModel):
     role_required: Optional[str] = None
     is_active: Optional[bool] = None
 
+
 class ApprovalPolicyRead(ApprovalPolicyBase):
     id: int
+    metric: Optional[str] = None
+    op: Optional[str] = None
+    threshold: Optional[float] = None
+    required_level: Optional[str] = None
+    rule_group: Optional[int] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApprovalStepRead(BaseModel):
+    id: int
+    step_order: int
+    level: str
+    role: str
+    status: str
+    decided_by_id: Optional[uuid.UUID] = None
+    decided_at: Optional[datetime] = None
+    comments: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -79,6 +100,12 @@ class ApprovalRequestRead(ApprovalRequestBase):
     submitted_date: Optional[str] = None
     reason: Optional[str] = None
     items: List[ApprovalQuoteItemSummary] = []
+    quote_version: Optional[int] = None
+    snapshot_hash: Optional[str] = None
+    required_level: Optional[str] = None
+    requested_by_id: Optional[uuid.UUID] = None
+    request_reason: Optional[str] = None
+    steps: List[ApprovalStepRead] = []
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -159,6 +159,8 @@ async def _respond(db: AsyncSession, token: str, name: str, note: Optional[str],
     if not _can_respond(quote):
         raise DomainValidationError("This proposal can no longer be accepted or declined (already answered or expired).")
     before = _status_str(quote.status)
+    if accept:
+        QuoteService(db).assert_approval_current(quote)
     quote.status = QuoteStatus.ACCEPTED if accept else QuoteStatus.REJECTED
     quote.customer_response_name = name.strip()
     quote.customer_response_note = note

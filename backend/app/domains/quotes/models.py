@@ -82,6 +82,9 @@ class Quote(Base):
     customer_response_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     customer_responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Content hash the current approval was given for. Sending or accepting requires the quote still matches it.
+    approved_snapshot_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", lazy="selectin")
     created_by: Mapped["User"] = relationship("User", lazy="selectin")

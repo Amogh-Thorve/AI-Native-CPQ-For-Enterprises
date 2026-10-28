@@ -1,8 +1,9 @@
 import enum
 import uuid
+from decimal import Decimal
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, Numeric, DateTime, func, Boolean, Uuid
+from sqlalchemy import String, ForeignKey, Numeric, DateTime, func, Boolean, Uuid, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.app.core.database import Base
 
@@ -14,6 +15,8 @@ class ApprovalStatus(str, enum.Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"  # replaced by a newer submission
+    STALE = "STALE"            # quote changed before the final decision
 
     @classmethod
     def _missing_(cls, value: object):
@@ -46,6 +49,13 @@ class ApprovalPolicy(Base):
     role_required: Mapped[str] = mapped_column(String(50), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Rule-engine condition: metric (op) threshold -> required_level. Rows sharing rule_group are ANDed.
+    metric: Mapped[str] = mapped_column(String(30), default="MAX_LINE_DISCOUNT", server_default="MAX_LINE_DISCOUNT", nullable=False)
+    op: Mapped[str] = mapped_column(String(4), default="GE", server_default="GE", nullable=False)
+    threshold: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    required_level: Mapped[str] = mapped_column(String(20), default="EXECUTIVE", server_default="EXECUTIVE", nullable=False)
+    rule_group: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
 
 class ApprovalRequest(Base):
     """
@@ -60,13 +70,23 @@ class ApprovalRequest(Base):
     
     status: Mapped[ApprovalStatus] = mapped_column(String(50), default=ApprovalStatus.PENDING, nullable=False)
     comments: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    
+
+    # What was approved: the exact content hash, the version, and the level the rules required
+    quote_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    snapshot_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    required_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    requested_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    request_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     assigned_role: Mapped[str] = mapped_column(String(50), nullable=False)
     decided_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    steps: Mapped[List["ApprovalRequestStep"]] = relationship(
+        back_populates="request", cascade="all, delete-orphan", lazy="selectin", order_by="ApprovalRequestStep.step_order"
+    )
     policy: Mapped["ApprovalPolicy"] = relationship(lazy="joined")
     quote: Mapped["Quote"] = relationship("Quote", lazy="joined")
     decided_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[decided_by_id], lazy="selectin")
@@ -169,4 +189,21 @@ class ApprovalRequest(Base):
                 "margin_percentage": f"{float(it.margin_percentage):.1f}%" if it.margin_percentage is not None else "N/A"
             })
         return res
+
+
+class ApprovalRequestStep(Base):
+    """One sign-off in a request. A TWO_STEP request has a MANAGER step then an EXECUTIVE step, in order."""
+    __tablename__ = "approval_request_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("approval_requests.id", ondelete="CASCADE"), index=True, nullable=False)
+    step_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    level: Mapped[str] = mapped_column(String(20), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)
+    decided_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    comments: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    request: Mapped["ApprovalRequest"] = relationship(back_populates="steps")
 

@@ -22,6 +22,7 @@ router = APIRouter(prefix="/ai", tags=["ai-copilot"])
 from backend.app.core.config import settings
 from backend.app.domains.ai.llm import Message, Orchestrator, ProviderError, build_provider
 from backend.app.domains.ai.tools import ToolExecutor
+from backend.app.domains.approval.checker import ApprovalPolicyChecker
 
 
 class ChatTurn(BaseModel):
@@ -138,7 +139,7 @@ async def quote_assistant(
     if provider is None:
         raise HTTPException(status_code=503, detail="The quote assistant is not configured. Set LLM_PROVIDER in backend/.env.")
 
-    executor = ToolExecutor(current_user, db)
+    executor = ToolExecutor(current_user, db, policy_checker=ApprovalPolicyChecker(db))
     history = [Message(role=t.role, content=t.content) for t in body.history]
     result = await Orchestrator(provider, executor).run(body.message, history)
     return QuoteAssistantResponse(
