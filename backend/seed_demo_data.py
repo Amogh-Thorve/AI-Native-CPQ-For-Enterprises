@@ -29,6 +29,9 @@ from backend.app.domains.catalog.models import Product, Category, PriceBook, Pri
 from backend.app.domains.configuration.models import ProductConfigurationGroup, ProductConfigurationOption, ConfigurationRule, ConfigRuleType
 from backend.app.domains.pricing.models import ProductPricingSetting, ProductPricingTier, PricingRule, PricingRuleType
 from backend.app.domains.quotes.models import Quote, QuoteLineItem, QuoteStatus
+from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest, ApprovalStatus
+from backend.app.domains.integrations.models import IntegrationSyncLog, SalesforceToken
+
 
 async def seed_demo_data():
     async with SessionLocal() as db:
@@ -571,11 +574,194 @@ async def seed_demo_data():
             else:
                 print(f"  Reusing existing Demo Quote: Q-2026-0001 (Status: {quote.status})")
 
+            # ---------------------------------------------------------
+            # 7. APPROVAL POLICIES & APPROVAL QUEUE SEEDING
+            # ---------------------------------------------------------
+            print("\n[7/7] Verifying Approval Policies and Routing Queue...")
+            policies_def = [
+                ("Volume Hardware Override Threshold", Decimal("10.00"), "Executive"),
+                ("Competitive Displacement Margin Review", Decimal("15.00"), "Executive"),
+                ("Deep Discount Board Approval", Decimal("20.00"), "Administrator"),
+            ]
+            seeded_policies = {}
+            for p_name, p_thresh, p_role in policies_def:
+                res = await db.execute(select(ApprovalPolicy).where(ApprovalPolicy.name == p_name))
+                pol = res.scalar_one_or_none()
+                if not pol:
+                    pol = ApprovalPolicy(
+                        name=p_name,
+                        discount_threshold=float(p_thresh),
+                        role_required=p_role,
+                        is_active=True
+                    )
+                    db.add(pol)
+                    await db.flush()
+                    print(f"  Created Approval Policy: {p_name} (Threshold: {p_thresh}%, Role: {p_role})")
+                else:
+                    seeded_policies[p_name] = pol
+                    print(f"  Reusing Approval Policy: {p_name}")
+                seeded_policies[p_name] = pol
+
+            # Check secondary customer: Global Logistics Tech
+            res = await db.execute(select(Customer).where(Customer.legal_name == "Global Logistics Tech"))
+            glt_cust = res.scalar_one_or_none()
+            if not glt_cust:
+                glt_cust = Customer(
+                    tenant_id=tenant_id,
+                    customer_number="DEV-CUST-004",
+                    legal_name="Global Logistics Tech",
+                    display_name="Global Logistics Tech",
+                    customer_type=CustomerType.BUSINESS.value,
+                    status=CustomerStatus.ACTIVE.value,
+                    currency="USD",
+                    industry="Logistics & Supply Chain",
+                    website="https://globallogistics.tech",
+                    email="procurement@globallogistics.tech",
+                    owner_id=demo_user.id
+                )
+                db.add(glt_cust)
+                await db.flush()
+                print("  Created Customer: Global Logistics Tech")
+
+
+            # Check secondary user: Michael Chang
+            res = await db.execute(select(User).where(User.email == "michael.chang@enterprise.com"))
+            m_chang = res.scalar_one_or_none()
+            if not m_chang:
+                m_chang = User(
+                    id=uuid.uuid4(),
+                    email="michael.chang@enterprise.com",
+                    hashed_password=get_password_hash("Password123!"),
+                    first_name="Michael",
+                    last_name="Chang",
+                    is_active=True,
+                    is_verified=True
+                )
+                db.add(m_chang)
+                await db.flush()
+                db.add(UserRole(user_id=m_chang.id, role_id=sales_rep_role.id))
+                await db.flush()
+                print("  Created User: Michael Chang (Account Executive)")
+
+            # Check secondary quote: Q-2026-0004
+            res = await db.execute(select(Quote).where(Quote.quote_number == "Q-2026-0004"))
+            quote4 = res.scalar_one_or_none()
+            if not quote4:
+                quote4 = Quote(
+                    quote_number="Q-2026-0004",
+                    version=1,
+                    customer_id=glt_cust.id,
+                    title="Global Logistics Supply Chain Modernization",
+                    description="Enterprise platform license and cloud integration cluster.",
+                    status=QuoteStatus.SUBMITTED,
+                    currency="USD",
+                    valid_until=datetime.now(timezone.utc) + timedelta(days=30),
+                    notes="Competitive displacement vs Legacy Oracle CPQ",
+                    subtotal=Decimal("60024.54"),
+                    discount_amount=Decimal("11104.54"),
+                    tax_amount=Decimal("0.00"),
+                    total_amount=Decimal("48920.00"),
+                    margin_percentage=Decimal("26.10"),
+                    created_by_id=m_chang.id
+                )
+                db.add(quote4)
+                await db.flush()
+
+                # Add a quote line item to Q-2026-0004
+                item4 = QuoteLineItem(
+                    quote_id=quote4.id,
+                    product_id=p_cloud.id,
+                    product_name="Global Enterprise Cloud Cluster & Node Sync",
+                    sku="ENT-CLOUD-NODE",
+                    billing_type="MRC",
+                    currency="USD",
+                    quantity=100,
+                    unit_price=Decimal("600.25"),
+                    discount_percentage=Decimal("18.50"),
+                    discount_amount=Decimal("11104.54"),
+                    total_price=Decimal("48920.00"),
+                    pricing_method="TIERED",
+                    margin_amount=Decimal("12768.12"),
+                    margin_percentage=Decimal("26.10")
+                )
+                db.add(item4)
+                await db.flush()
+                print("  Created Demo Quote: Q-2026-0004 (SUBMITTED, Total: $48,920.00)")
+
+            # Ensure Q-2026-0001 has pending approval request
+            p_vol = seeded_policies.get("Volume Hardware Override Threshold")
+            if quote and p_vol:
+                res = await db.execute(select(ApprovalRequest).where(ApprovalRequest.quote_id == quote.id))
+                req1 = res.scalar_one_or_none()
+                if not req1:
+                    req1 = ApprovalRequest(
+                        quote_id=quote.id,
+                        policy_id=p_vol.id,
+                        assigned_role="Executive",
+                        status=ApprovalStatus.PENDING,
+                        comments="Volume Hardware & Multi-seat License Discount override"
+                    )
+                    db.add(req1)
+                    quote.status = QuoteStatus.SUBMITTED
+                    await db.flush()
+                    print(f"  Created Approval Request for {quote.quote_number} (Policy: {p_vol.name})")
+
+            # Ensure Q-2026-0004 has pending approval request
+            p_comp = seeded_policies.get("Competitive Displacement Margin Review")
+            if quote4 and p_comp:
+                res = await db.execute(select(ApprovalRequest).where(ApprovalRequest.quote_id == quote4.id))
+                req2 = res.scalar_one_or_none()
+                if not req2:
+                    req2 = ApprovalRequest(
+                        quote_id=quote4.id,
+                        policy_id=p_comp.id,
+                        assigned_role="Executive",
+                        status=ApprovalStatus.PENDING,
+                        comments="Competitive displacement vs Legacy Oracle CPQ"
+                    )
+                    db.add(req2)
+                    quote4.status = QuoteStatus.SUBMITTED
+                    await db.flush()
+                    print(f"  Created Approval Request for {quote4.quote_number} (Policy: {p_comp.name})")
+
+            # ---------------------------------------------------------
+            # 8. INTEGRATION SYNC LOGS
+            # ---------------------------------------------------------
+            res = await db.execute(select(IntegrationSyncLog))
+            existing_logs = res.scalars().all()
+            if not existing_logs:
+                now_t = datetime.utcnow()
+                db.add(IntegrationSyncLog(
+                    integration_type="excel",
+                    started_at=now_t - timedelta(hours=2),
+                    completed_at=now_t - timedelta(hours=2) + timedelta(seconds=14),
+                    status="success",
+                    records_processed=142
+                ))
+                db.add(IntegrationSyncLog(
+                    integration_type="webhooks",
+                    started_at=now_t - timedelta(minutes=15),
+                    completed_at=now_t - timedelta(minutes=15) + timedelta(seconds=1),
+                    status="success",
+                    records_processed=1290
+                ))
+                db.add(IntegrationSyncLog(
+                    integration_type="salesforce",
+                    started_at=now_t - timedelta(hours=5),
+                    completed_at=now_t - timedelta(hours=5) + timedelta(seconds=8),
+                    status="success",
+                    records_processed=48
+                ))
+                await db.flush()
+                print("  Created initial Integration Sync Logs for audit trail.")
+
             await db.commit()
+
             print("\n" + "=" * 60)
             print("DEMO DATA SEEDING COMPLETE AND IDEMPOTENT!")
             print("=" * 60)
             return True
+
 
         except Exception as e:
             await db.rollback()

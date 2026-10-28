@@ -1,6 +1,8 @@
 from typing import List, Optional, Dict, Any, Set
 import uuid
 from decimal import Decimal
+from datetime import datetime, timezone
+from sqlalchemy import select
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.domains.quotes.repositories import QuoteRepository
@@ -375,20 +377,12 @@ class QuoteService:
         if not quote.items or len(quote.items) == 0:
             raise DomainValidationError("Cannot submit an empty quote. Please add at least one product.")
 
-        quote.status = QuoteStatus.SUBMITTED
-        self.db.add(quote)
-        await self.db.flush()
-
-        user_roles, _ = self._extract_user_context(current_user)
-        await self.quote_repo.log_audit(
-            quote_id=quote.id,
-            action="QUOTE_SUBMITTED",
-            user_id=current_user.id if current_user else quote.created_by_id,
-            user_role=user_roles[0] if user_roles else None,
-            after_value={"status": _status_str(quote.status), "grand_total": f"{quote.total_amount:.2f}"}
-        )
+        from backend.app.domains.approval.services import ApprovalService
+        approval_service = ApprovalService(self.db)
+        await approval_service.check_and_route_quote(quote, current_user=current_user)
 
         return quote
+
 
     async def cancel_quote(self, quote_id: int, current_user: Optional[User] = None) -> Quote:
         quote = await self.get_quote(quote_id, current_user)
@@ -397,6 +391,8 @@ class QuoteService:
         status_str = _status_str(quote.status)
         if status_str in (QuoteStatus.CANCELLED.value, QuoteStatus.REJECTED.value):
             raise DomainValidationError(f"Quote is already {status_str}.")
+        if status_str == QuoteStatus.ACCEPTED.value:
+            raise DomainValidationError("An accepted quote cannot be cancelled. Create a revision instead.")
 
         before_status = status_str
         quote.status = QuoteStatus.CANCELLED
@@ -414,6 +410,82 @@ class QuoteService:
         )
 
         return quote
+
+    async def emit_event(self, event: str, quote: Quote) -> None:
+        """Publishes a quote lifecycle webhook (best effort; never raises)."""
+        try:
+            from backend.app.domains.integrations import webhooks
+            cust = quote.customer
+            await webhooks.emit(self.db, event, {
+                "quote_id": quote.id, "quote_number": quote.quote_number, "version": quote.version,
+                "status": _status_str(quote.status), "total_amount": f"{quote.total_amount:.2f}", "currency": quote.currency,
+                "customer": (cust.display_name or cust.legal_name) if cust else None,
+            })
+        except Exception:
+            pass
+
+    async def mark_sent(self, quote_id: int, current_user: Optional[User] = None) -> Quote:
+        """Moves an APPROVED quote to SENT once the proposal has been delivered to the customer."""
+        quote = await self.get_quote(quote_id, current_user)
+        if _status_str(quote.status) != QuoteStatus.APPROVED.value:
+            return quote
+        quote.status = QuoteStatus.SENT
+        self.db.add(quote)
+        await self.db.flush()
+        user_roles, _ = self._extract_user_context(current_user)
+        await self.quote_repo.log_audit(
+            quote_id=quote.id,
+            action="QUOTE_SENT",
+            user_id=current_user.id if current_user else quote.created_by_id,
+            user_role=user_roles[0] if user_roles else None,
+            before_value={"status": QuoteStatus.APPROVED.value},
+            after_value={"status": QuoteStatus.SENT.value}
+        )
+        await self.emit_event("quote.sent", quote)
+        return quote
+
+    async def accept_quote(self, quote_id: int, current_user: Optional[User] = None) -> Quote:
+        """Records customer acceptance (closed-won) of an approved or sent quote."""
+        quote = await self.get_quote(quote_id, current_user)
+        self._check_write_access(quote, current_user)
+        before = _status_str(quote.status)
+        if before not in (QuoteStatus.APPROVED.value, QuoteStatus.SENT.value):
+            raise DomainValidationError(f"Only APPROVED or SENT quotes can be accepted. Current status: {before}.")
+        if quote.valid_until and quote.valid_until < datetime.now(timezone.utc):
+            raise DomainValidationError("This quote has passed its validity date. Create a revision to re-quote.")
+        quote.status = QuoteStatus.ACCEPTED
+        self.db.add(quote)
+        await self.db.flush()
+        user_roles, _ = self._extract_user_context(current_user)
+        await self.quote_repo.log_audit(
+            quote_id=quote.id,
+            action="QUOTE_ACCEPTED",
+            user_id=current_user.id if current_user else quote.created_by_id,
+            user_role=user_roles[0] if user_roles else None,
+            before_value={"status": before},
+            after_value={"status": QuoteStatus.ACCEPTED.value, "grand_total": f"{quote.total_amount:.2f}"}
+        )
+        await self.emit_event("quote.accepted", quote)
+        return quote
+
+    async def expire_overdue_quotes(self) -> int:
+        """Marks open quotes whose valid_until date has passed as EXPIRED. Returns number expired."""
+        open_states = [QuoteStatus.DRAFT.value, QuoteStatus.SUBMITTED.value, QuoteStatus.APPROVED.value, QuoteStatus.SENT.value]
+        res = await self.db.execute(
+            select(Quote).where(Quote.status.in_(open_states), Quote.valid_until.is_not(None), Quote.valid_until < datetime.now(timezone.utc))
+        )
+        overdue = list(res.scalars().all())
+        for q in overdue:
+            before = _status_str(q.status)
+            q.status = QuoteStatus.EXPIRED
+            self.db.add(q)
+            await self.quote_repo.log_audit(
+                quote_id=q.id, action="QUOTE_EXPIRED", user_id=q.created_by_id, user_role="System",
+                before_value={"status": before}, after_value={"status": QuoteStatus.EXPIRED.value}
+            )
+        if overdue:
+            await self.db.flush()
+        return len(overdue)
 
     async def revise_quote(self, quote_id: int, current_user: Optional[User] = None) -> Quote:
         """

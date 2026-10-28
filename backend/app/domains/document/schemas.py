@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+import uuid
 from datetime import datetime
 
 class GenerateDocumentRequest(BaseModel):
@@ -10,7 +11,7 @@ class DocumentRead(BaseModel):
     quote_id: int
     file_path: str
     generated_at: datetime
-    created_by_id: int
+    created_by_id: uuid.UUID
 
     class Config:
         from_attributes = True

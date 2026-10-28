@@ -32,8 +32,6 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { useDemoTour } from "@/components/demo/DemoTourProvider";
-import { DEMO_ACME_ID, DEMO_CUSTOMER_LIST } from "@/lib/demoMockData";
 import type {
   CustomerRead,
   CustomerCreate,
@@ -66,7 +64,6 @@ import {
 export default function CustomersPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const { isActive: isDemoActive, flags: demoFlags, mockCustomers } = useDemoTour();
 
   // Role permissions
   const isManager = user?.role === "manager" || user?.role === "admin";
@@ -121,9 +118,9 @@ export default function CustomersPage() {
 
   // Main list query
   const {
-    data: liveCustomersData,
-    isLoading: isLiveLoading,
-    isError: isLiveError,
+    data: customersData,
+    isLoading,
+    isError,
     error,
   } = useQuery<CustomerListResponse>({
     queryKey: ["customers", page, pageSize, debouncedSearch, statusFilter, typeFilter],
@@ -136,36 +133,15 @@ export default function CustomersPage() {
       if (typeFilter) params.append("customer_type", typeFilter);
       return api.get<CustomerListResponse>(`/customers/?${params.toString()}`);
     },
-    enabled: !isDemoActive,
   });
-
-  const customersData: CustomerListResponse | undefined = isDemoActive
-    ? DEMO_CUSTOMER_LIST
-    : liveCustomersData;
-  const isLoading = isDemoActive ? false : isLiveLoading;
-  const isError = isDemoActive ? false : isLiveError;
-
-  useEffect(() => {
-    if (!isDemoActive) return;
-    if (demoFlags.openCustomerRecord) {
-      setSelectedCustomerId(DEMO_ACME_ID);
-      setActiveTab("overview");
-    } else {
-      setSelectedCustomerId(null);
-    }
-  }, [isDemoActive, demoFlags.openCustomerRecord]);
 
   // Selected customer details
-  const { data: liveSelectedCustomer } = useQuery<CustomerRead>({
+  const { data: selectedCustomer } = useQuery<CustomerRead>({
     queryKey: ["customer", selectedCustomerId],
     queryFn: () => api.get<CustomerRead>(`/customers/${selectedCustomerId}`),
-    enabled: selectedCustomerId !== null && !isDemoActive
+    enabled: selectedCustomerId !== null
   });
 
-  const selectedCustomer = isDemoActive
-    ? mockCustomers.find((c) => c.id === selectedCustomerId) ??
-      (demoFlags.openCustomerRecord ? mockCustomers[0] : undefined)
-    : liveSelectedCustomer;
 
   // Mutations
   const createCustomerMutation = useMutation({
@@ -250,7 +226,6 @@ export default function CustomersPage() {
 
   const handleCreateCustomer = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isDemoActive) return;
     const formData = new FormData(e.currentTarget);
     const data: CustomerCreate = {
       customer_number: formData.get("customer_number") as string,
@@ -269,7 +244,7 @@ export default function CustomersPage() {
 
   const handleUpdateCustomer = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedCustomerId || isDemoActive) return;
+    if (!selectedCustomerId) return;
     const formData = new FormData(e.currentTarget);
     const data: CustomerUpdate = {
       customer_number: formData.get("customer_number") as string,
@@ -288,7 +263,7 @@ export default function CustomersPage() {
 
   const handleAddContact = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedCustomerId || isDemoActive) return;
+    if (!selectedCustomerId) return;
     const formData = new FormData(e.currentTarget);
     const data: ContactCreate = {
       first_name: formData.get("first_name") as string,
@@ -302,7 +277,7 @@ export default function CustomersPage() {
 
   const handleAddAddress = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedCustomerId || isDemoActive) return;
+    if (!selectedCustomerId) return;
     const formData = new FormData(e.currentTarget);
     const data: CustomerAddressCreate = {
       address_type: formData.get("address_type") as AddressType,
@@ -355,7 +330,7 @@ export default function CustomersPage() {
   return (
     <div className="space-y-6">
       {/* ─── Page Header ────────────────────────────────────────── */}
-      <div data-demo="customers-header">
+      <div>
       <PageHeader
         title="Customers"
         description="Manage and view your customer profiles"
@@ -465,7 +440,7 @@ export default function CustomersPage() {
       <div className="flex gap-6 items-start">
         {/* Left: Customers Data Table */}
         <div className={`transition-all duration-200 ${selectedCustomerId ? "w-full lg:w-7/12" : "w-full"}`}>
-          <Card data-demo="customers-table">
+          <Card>
             <DataTable className="border-0 rounded-none">
               <TableHead>
                 <TableRow>
@@ -501,11 +476,6 @@ export default function CustomersPage() {
                   customersData.items.map((cust) => (
                     <TableRow
                       key={cust.id}
-                      data-demo={
-                        /acme/i.test(cust.legal_name || "") || /acme/i.test(cust.display_name || "")
-                          ? "customer-acme"
-                          : undefined
-                      }
                       onClick={() => {
                         setSelectedCustomerId(cust.id);
                         setActiveTab("overview");
@@ -664,7 +634,7 @@ export default function CustomersPage() {
 
         {/* Right: Selected Customer Details Drawer */}
         {selectedCustomerId && selectedCustomer && (
-          <div data-demo="customer-drawer" className="w-full lg:w-5/12 animate-in slide-in-from-right duration-200">
+          <div className="w-full lg:w-5/12 animate-in slide-in-from-right duration-200">
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between w-full">

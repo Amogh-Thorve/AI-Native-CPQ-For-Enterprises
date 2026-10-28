@@ -14,6 +14,8 @@ class QuoteStatus(str, enum.Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
+    SENT = "SENT"
+    ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
     CANCELLED = "CANCELLED"

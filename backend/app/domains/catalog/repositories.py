@@ -1,5 +1,5 @@
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from backend.app.domains.catalog.models import Category, Product, PriceBook, PriceBookEntry
@@ -60,11 +60,19 @@ class ProductRepository:
         result = await self.db.execute(select(Product).where(Product.external_crm_id == external_crm_id))
         return result.scalars().first()
 
-    async def list(self, limit: int = 100, offset: int = 0, category_id: Optional[int] = None) -> List[Product]:
+    async def list(
+        self, limit: int = 100, offset: int = 0, category_id: Optional[int] = None,
+        search: Optional[str] = None, is_active: Optional[bool] = None
+    ) -> List[Product]:
         stmt = select(Product).options(selectinload(Product.category))
         if category_id is not None:
             stmt = stmt.where(Product.category_id == category_id)
-        stmt = stmt.limit(limit).offset(offset)
+        if is_active is not None:
+            stmt = stmt.where(Product.is_active.is_(is_active))
+        if search and search.strip():
+            pattern = f"%{search.strip()}%"
+            stmt = stmt.where(or_(Product.name.ilike(pattern), Product.sku.ilike(pattern)))
+        stmt = stmt.order_by(Product.id).limit(limit).offset(offset)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 

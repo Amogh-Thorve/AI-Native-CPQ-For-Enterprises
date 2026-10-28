@@ -219,8 +219,10 @@ ROLE_PERMISSION_MAPPINGS = {
         "quotes.approve",
         "quotes.export",
         "approval.read",
+        "approval.manage",
         "configuration.configure",
         "configuration.admin"
+
     ],
     "Viewer": [
         "customers.read",

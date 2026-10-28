@@ -18,6 +18,7 @@ from backend.app.domains.document import router as document_router
 from backend.app.domains.email import router as email_router
 from backend.app.domains.ai import router as ai_router
 from backend.app.domains.integrations import router as integrations_router
+from backend.app.domains.analytics import router as analytics_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -55,6 +56,7 @@ app.include_router(document_router, prefix=settings.API_V1_STR)
 app.include_router(email_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(integrations_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 @app.get("/health", tags=["system-monitoring"])
 def health_check():

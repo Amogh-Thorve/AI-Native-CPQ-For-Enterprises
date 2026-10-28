@@ -1,6 +1,7 @@
 import uuid
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.domains.auth.models import User
@@ -18,7 +19,8 @@ async def get_current_user(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     auth_service = AuthService(db)
     return await auth_service.get_current_user_from_token(token)

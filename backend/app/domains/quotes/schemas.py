@@ -21,7 +21,7 @@ class CustomerSummaryRead(BaseModel):
 
 class UserSummaryRead(BaseModel):
     id: uuid.UUID
-    username: str
+    username: Optional[str] = None
     email: str
     first_name: str
     last_name: str

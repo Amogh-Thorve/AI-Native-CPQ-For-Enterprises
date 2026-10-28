@@ -4,10 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { ShieldCheck, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { ShieldCheck, Loader2, AlertCircle } from "lucide-react";
 import { useLogin } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { DEMO_CREDENTIALS, DEMO_PENDING_STORAGE_KEY } from "@/lib/demoTour";
 
 // ─── Form validation schema ───────────────────────────────────────────────────
 
@@ -32,17 +31,10 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
   });
-
-  const fillDemoAccount = () => {
-    setValue("email", DEMO_CREDENTIALS.email, { shouldValidate: true, shouldDirty: true });
-    setValue("password", DEMO_CREDENTIALS.password, { shouldValidate: true, shouldDirty: true });
-    sessionStorage.setItem(DEMO_PENDING_STORAGE_KEY, "1");
-  };
 
   const onSubmit = (values: LoginFormValues) => {
     login.mutate(values);
@@ -150,18 +142,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        <button
-          type="button"
-          onClick={fillDemoAccount}
-          className="w-full py-2.5 rounded-xl border border-teal-700/60 bg-zinc-950 text-teal-300 text-xs font-semibold hover:bg-zinc-800 hover:border-teal-500 transition-colors flex items-center justify-center gap-2"
-        >
-          <Sparkles size={14} />
-          Use demo account
-        </button>
-        <p className="text-[11px] text-zinc-500 text-center">
-          Fills {DEMO_CREDENTIALS.email}. Sign in to open the dashboard tour.
-        </p>
 
         {/* Switch to register */}
         <div className="text-center text-xs text-zinc-500 font-medium">

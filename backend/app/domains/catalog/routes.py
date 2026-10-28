@@ -55,14 +55,17 @@ async def list_products(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     category_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None, description="Match on product name or SKU"),
+    status: Optional[str] = Query(None, description="active | inactive"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(PermissionChecker("catalog.read"))
 ):
     """
-    List all products in catalog. Optionally filter by category.
+    List products in catalog. Optionally filter by category, name/SKU search and status.
     """
     service = CatalogService(db)
-    products = await service.list_products(limit=limit, offset=offset, category_id=category_id)
+    is_active = {"active": True, "inactive": False}.get((status or "").lower())
+    products = await service.list_products(limit=limit, offset=offset, category_id=category_id, search=search, is_active=is_active)
     return [sanitize_product_read(p, current_user) for p in products]
 
 @router.post("/products", response_model=ProductRead, status_code=status.HTTP_201_CREATED)

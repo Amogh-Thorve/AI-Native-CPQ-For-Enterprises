@@ -41,6 +41,8 @@ async def list_quotes(
     Get all quotations with filtering and RBAC visibility constraints.
     """
     service = QuoteService(db)
+    if await service.expire_overdue_quotes():
+        await db.commit()
     return await service.list_quotes(
         customer_id=customer_id,
         status=status,
@@ -181,3 +183,18 @@ async def revise_quote(
     revised = await service.revise_quote(quote_id, current_user=current_user)
     await db.commit()
     return await service.get_quote(revised.id, current_user=current_user)
+
+
+@router.post("/{quote_id}/accept", response_model=QuoteRead)
+async def accept_quote(
+    quote_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("quotes.update"))
+):
+    """
+    Record customer acceptance of an approved/sent quote (closed-won).
+    """
+    service = QuoteService(db)
+    quote = await service.accept_quote(quote_id, current_user=current_user)
+    await db.commit()
+    return await service.get_quote(quote.id, current_user=current_user)

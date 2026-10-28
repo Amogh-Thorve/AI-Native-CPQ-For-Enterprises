@@ -139,6 +139,18 @@ async def update_option(
     await db.commit()
     return res
 
+@router.get("/rules", response_model=List[ConfigurationRuleRead])
+async def list_rules(
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("configuration.configure"))
+):
+    """
+    List the active requires/excludes rules that apply to a product.
+    """
+    service = ConfigurationService(db)
+    return await service.rule_repo.get_rules_for_product(product_id)
+
 @router.post("/rules", response_model=ConfigurationRuleRead, status_code=status.HTTP_201_CREATED)
 async def create_rule(
     schema: ConfigurationRuleCreate,

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+import uuid
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from backend.app.domains.approval.models import ApprovalStatus
@@ -20,9 +21,21 @@ class ApprovalPolicyUpdate(BaseModel):
 
 class ApprovalPolicyRead(ApprovalPolicyBase):
     id: int
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
+
+class ApprovalQuoteItemSummary(BaseModel):
+    id: int
+    product_name: Optional[str] = None
+    sku: Optional[str] = None
+    quantity: int = 1
+    unit_price: str = "$0.00"
+    discount_percentage: str = "0.0%"
+    discount_amount: str = "$0.00"
+    total_price: str = "$0.00"
+    margin_percentage: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ApprovalRequestBase(BaseModel):
@@ -37,13 +50,26 @@ class ApprovalRequestRead(ApprovalRequestBase):
     id: int
     status: ApprovalStatus
     comments: Optional[str] = None
-    decided_by_id: Optional[int] = None
+    decided_by_id: Optional[uuid.UUID] = None
     created_at: datetime
     decided_at: Optional[datetime] = None
     policy: Optional[ApprovalPolicyRead] = None
 
-    class Config:
-        from_attributes = True
+    # Enriched fields for table and detail views
+    quote_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    amount: Optional[str] = None
+    subtotal: Optional[str] = None
+    discount_percentage: Optional[str] = None
+    discount_amount: Optional[str] = None
+    margin_percentage: Optional[str] = None
+    requested_by: Optional[str] = None
+    requested_role: Optional[str] = None
+    submitted_date: Optional[str] = None
+    reason: Optional[str] = None
+    items: List[ApprovalQuoteItemSummary] = []
+
+    model_config = ConfigDict(from_attributes=True)
 
 class SubmitApprovalRequest(BaseModel):
     quote_id: int
@@ -52,3 +78,4 @@ class SubmitApprovalRequest(BaseModel):
 class DecideApprovalRequest(BaseModel):
     status: ApprovalStatus  # APPROVED or REJECTED
     comments: Optional[str] = None
+

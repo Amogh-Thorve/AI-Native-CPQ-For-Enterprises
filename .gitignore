@@ -97,3 +97,4 @@ ehthumbs.db
 # Commit docker-compose.yml and Dockerfiles — not runtime data
 docker/data/
 docker/postgres-data/
+backend/storage/

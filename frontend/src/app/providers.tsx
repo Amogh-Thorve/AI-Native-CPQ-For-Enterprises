@@ -3,7 +3,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { AuthProvider } from "@/hooks/useAuth";
-import { DemoTourProvider } from "@/components/demo/DemoTourProvider";
 
 /**
  * Client-side providers wrapper.
@@ -27,7 +26,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <DemoTourProvider>{children}</DemoTourProvider>
+        {children}
       </AuthProvider>
     </QueryClientProvider>
   );

@@ -29,12 +29,13 @@ A production-quality, modular monolith **Configure, Price, Quote** platform buil
 | 3 | **Product Catalog** | ✅ Complete | ✅ Complete | Price books, Excel import, cost & margins |
 | 4 | **Pricing Engine** | ✅ Complete | ✅ Complete | 5 methods (Standard, Discount, Tiered Volume/Cumulative, Block, Cost+Markup), lifecycle, effective dates, Decimal math, RBAC masking |
 | 5 | **Product Configuration** | ✅ Complete | ✅ Complete | Attributes, options, constraints, bundles, validation wizard, versioning |
-| 6 | **Quote Builder** | 🔲 Planned | 🔲 Planned | Quote lifecycle, revisions |
-| 7 | **Approval Workflow** | 🔲 Planned | 🔲 Planned | Policies, multi-step approvals |
-| 8 | **PDF Generation** | 🏗️ Scaffold | — | Document generation endpoint |
-| 9 | **Email** | 🏗️ Scaffold | — | Email dispatcher |
-| 10 | **AI Copilot** | 🏗️ Scaffold | — | Customer/quote summaries, draft emails |
-| 11 | **Integrations** | 🏗️ Scaffold | — | CSV/Excel import, Salesforce sync |
+| 6 | **Quote Builder** | ✅ Complete | ✅ Complete | Draft → submit → approve → PDF → email → accept; revisions, expiry, audit trail |
+| 7 | **Approval Workflow** | ✅ Complete | ✅ Complete | Discount-threshold policies, role-based decisions |
+| 8 | **PDF Generation** | ✅ Complete | ✅ Complete | ReportLab proposals, authenticated download |
+| 9 | **Email** | ✅ Complete | ✅ Complete | SMTP delivery with PDF attachment (configure SMTP_* in backend/.env) |
+| 10 | **AI Copilot** | ✅ Complete | ✅ Complete | Gemini (GEMINI_API_KEY) grounded in DB facts, data-driven fallback |
+| 11 | **Integrations** | ✅ Complete | ✅ Complete | Salesforce (OAuth/token) opportunity sync, CSV/XLSX import wizard, signed webhooks |
+| 12 | **Analytics Dashboard** | ✅ Complete | ✅ Complete | Live KPIs from quotes |
 
 ---
 
