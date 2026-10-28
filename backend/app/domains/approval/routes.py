@@ -1,17 +1,22 @@
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.domains.auth.routes import get_current_user
 from backend.app.domains.auth.models import User
 from backend.app.domains.approval.schemas import (
-    ApprovalPolicyCreate, ApprovalPolicyRead, SubmitApprovalRequest,
+    ApprovalPolicyCreate, ApprovalPolicyRead, ApprovalPolicyUpdate, SubmitApprovalRequest,
     ApprovalRequestRead, DecideApprovalRequest
 )
 from backend.app.domains.approval.services import ApprovalService
 from backend.app.core.exceptions import EntityNotFoundError
 
 router = APIRouter(prefix="/approvals", tags=["approval-workflow"])
+
+def require_policy_admin(current_user: User = Depends(get_current_user)) -> User:
+    if not {"Administrator", "Executive"}.intersection(r.name for r in (current_user.roles or [])):
+        raise HTTPException(status_code=403, detail="Only Administrators and Executives can manage approval policies.")
+    return current_user
 
 def _get_user_roles_and_permissions(user: User):
     roles = [r.name for r in (user.roles or [])]
@@ -22,13 +27,49 @@ def _get_user_roles_and_permissions(user: User):
 async def create_policy(
     schema: ApprovalPolicyCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_policy_admin)
 ):
     """
-    Register a new approval policy (Admin / Manager).
+    Register a new approval policy (Administrator / Executive).
     """
     service = ApprovalService(db)
-    return await service.create_policy(schema)
+    policy = await service.create_policy(schema)
+    await db.commit()
+    return policy
+
+@router.put("/policies/{policy_id}", response_model=ApprovalPolicyRead)
+async def update_policy(
+    policy_id: int,
+    schema: ApprovalPolicyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_policy_admin)
+):
+    service = ApprovalService(db)
+    policy = await service.approval_repo.get_policy_by_id(policy_id)
+    if not policy:
+        raise EntityNotFoundError(f"Policy {policy_id} not found.")
+    for field, value in schema.model_dump(exclude_unset=True).items():
+        setattr(policy, field, value)
+    db.add(policy)
+    await db.commit()
+    return policy
+
+@router.delete("/policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_policy(
+    policy_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_policy_admin)
+):
+    """
+    Deactivate a policy (kept for history; no longer evaluated).
+    """
+    service = ApprovalService(db)
+    policy = await service.approval_repo.get_policy_by_id(policy_id)
+    if not policy:
+        raise EntityNotFoundError(f"Policy {policy_id} not found.")
+    policy.is_active = False
+    db.add(policy)
+    await db.commit()
 
 @router.get("/policies", response_model=List[ApprovalPolicyRead])
 async def list_policies(

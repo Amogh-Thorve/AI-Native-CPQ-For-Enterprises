@@ -10,7 +10,7 @@ export function Card({ children, className, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        "bg-white border border-slate-200/80 rounded-xl shadow-xs transition-shadow hover:shadow-sm",
+        "bg-canvas border border-hairline rounded-xl",
         className
       )}
       {...props}
@@ -27,7 +27,7 @@ export function CardHeader({
 }: CardProps) {
   return (
     <div
-      className={cn("px-6 py-4.5 border-b border-slate-100 flex items-center justify-between", className)}
+      className={cn("px-6 py-4.5 border-b border-hairline flex items-center justify-between", className)}
       {...props}
     >
       {children}
@@ -42,7 +42,7 @@ export function CardTitle({
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-base font-semibold text-slate-900 tracking-tight", className)}
+      className={cn("text-base font-extrabold text-ink", className)}
       {...props}
     >
       {children}
@@ -81,7 +81,7 @@ export function CardFooter({
 }: CardProps) {
   return (
     <div
-      className={cn("px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-between", className)}
+      className={cn("px-6 py-4 border-t border-hairline bg-canvas-soft rounded-b-xl flex items-center justify-between", className)}
       {...props}
     >
       {children}

@@ -31,6 +31,7 @@ import {
   Building
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { CustomerActivityTab, CustomerAiBrief, CustomerQuotesTab } from "./panels";
 import { useAuth } from "@/hooks/useAuth";
 import type {
   CustomerRead,
@@ -674,6 +675,7 @@ export default function CustomersPage() {
               <CardContent className="space-y-4 pt-4 text-xs">
                 {activeTab === "overview" && (
                   <div className="space-y-4">
+                    <CustomerAiBrief customerId={selectedCustomer.id} />
                     <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
                       <div>
                         <span className="text-[10px] text-slate-400 uppercase font-semibold block">Email</span>
@@ -791,29 +793,10 @@ export default function CustomersPage() {
                   </div>
                 )}
 
-                {activeTab === "quotes" && (
-                  <div className="text-center py-8 text-slate-500 space-y-2">
-                    <FileText size={24} className="mx-auto text-slate-300" />
-                    <p className="font-semibold text-slate-700">No active quotes linked</p>
-                    <p className="text-[11px] text-slate-400">Create a quote for this customer in the Quote Builder.</p>
-                  </div>
-                )}
+                {activeTab === "quotes" && <CustomerQuotesTab customerId={selectedCustomer.id} />}
 
                 {activeTab === "activity" && (
-                  <div className="space-y-3 pl-2 border-l border-slate-200">
-                    <div className="relative pl-3">
-                      <span className="w-2 h-2 rounded-full bg-blue-600 absolute -left-[5px] top-1" />
-                      <div className="font-semibold text-slate-800">Account Viewed</div>
-                      <div className="text-[10px] text-slate-400">Just now</div>
-                    </div>
-                    <div className="relative pl-3">
-                      <span className="w-2 h-2 rounded-full bg-slate-300 absolute -left-[5px] top-1" />
-                      <div className="font-semibold text-slate-800">Created in CRM</div>
-                      <div className="text-[10px] text-slate-400">
-                        {new Date(selectedCustomer.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
+                  <CustomerActivityTab customerId={selectedCustomer.id} createdAt={selectedCustomer.created_at} />
                 )}
               </CardContent>
             </Card>

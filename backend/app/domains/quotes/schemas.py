@@ -124,6 +124,12 @@ class QuoteRead(QuoteBase):
     created_at: datetime
     updated_at: datetime
     parent_quote_id: Optional[int] = None
+    tax_rate_percent: Optional[Decimal] = None
+    tax_label: Optional[str] = None
+    share_token: Optional[str] = None
+    customer_response_name: Optional[str] = None
+    customer_response_note: Optional[str] = None
+    customer_responded_at: Optional[datetime] = None
     items: List[QuoteLineItemRead] = []
     audit_logs: List[QuoteAuditLogRead] = []
 

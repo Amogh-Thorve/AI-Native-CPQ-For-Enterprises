@@ -11,6 +11,8 @@ from backend.app.domains.ai.schemas import (
     ProductRecommendationRequest, ProductRecommendationResponse
 )
 from backend.app.domains.ai.services import AIService
+from backend.app.domains.ai.nlquote import QuoteFromTextRequest, QuoteFromTextResponse, build_from_text
+from backend.app.domains.ai.insights import AskRequest, AskResponse, DealInsights, ask as ask_copilot, deal_insights
 
 router = APIRouter(prefix="/ai", tags=["ai-copilot"])
 
@@ -57,3 +59,36 @@ async def get_recommendations(
 ):
     """Cross-sell suggestions from co-occurrence in historical quotes."""
     return await AIService(db).recommend_products(request, current_user)
+
+
+@router.post("/quote-from-text", response_model=QuoteFromTextResponse)
+async def quote_from_text(
+    request: QuoteFromTextRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Turn a natural-language request into a quote. Products/customers are always resolved against the real database;
+    with create=true the draft quote is saved and its id returned."""
+    ai = AIService(db)
+    result = await build_from_text(ai, request, current_user)
+    if request.create:
+        await db.commit()
+    return result
+
+@router.get("/deal-insights/{quote_id}", response_model=DealInsights)
+async def get_deal_insights(
+    quote_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Win probability, discount guidance, risks and next actions computed from historical quote outcomes."""
+    return await deal_insights(AIService(db), quote_id, current_user)
+
+@router.post("/ask", response_model=AskResponse)
+async def ask_the_copilot(
+    request: AskRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Ask a question about your pipeline, grounded in the quotes you can see."""
+    return await ask_copilot(AIService(db), request.question, current_user)

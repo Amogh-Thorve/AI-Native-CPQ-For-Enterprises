@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { ShieldCheck, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useRegister } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/types/auth";
@@ -41,17 +41,14 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 font-sans">
-      <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-8 space-y-8 shadow-2xl">
+    <div className="min-h-screen bg-canvas-warm flex flex-col items-center justify-center p-6 font-sans">
+      <div className="w-full max-w-md bg-canvas border border-hairline rounded-xl p-8 space-y-8">
         {/* Brand header */}
         <div className="flex flex-col items-center space-y-2">
-          <div className="p-3 rounded-2xl bg-zinc-800 border border-zinc-700/50">
-            <ShieldCheck className="text-teal-400" size={32} />
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-wider bg-gradient-to-r from-teal-400 to-emerald-400 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-extrabold text-brand-mark">
             CPQ COGNITIVE
           </h1>
-          <p className="text-xs text-zinc-500 font-semibold tracking-wide uppercase">
+          <p className="text-xs text-slate-500 font-semibold tracking-wide uppercase">
             Request Platform Access
           </p>
         </div>
@@ -66,8 +63,8 @@ export default function RegisterPage() {
 
         {/* API error banner */}
         {register.error && (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-red-950/40 border border-red-800/50 text-sm text-red-300">
-            <AlertCircle size={16} className="shrink-0 text-red-400" />
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
+            <AlertCircle size={16} className="shrink-0 text-rose-600" />
             <span>
               {(register.error as { detail?: string }).detail ??
                 "Registration failed. Please try again."}
@@ -79,7 +76,7 @@ export default function RegisterPage() {
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
           {/* Full name */}
           <div className="space-y-1.5">
-            <label htmlFor="full_name" className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+            <label htmlFor="full_name" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
               Full Name
             </label>
             <input
@@ -88,19 +85,19 @@ export default function RegisterPage() {
               autoComplete="name"
               placeholder="John Doe"
               className={cn(
-                "w-full px-4 py-3 bg-zinc-950 border rounded-xl text-sm text-zinc-200 focus:outline-none placeholder-zinc-600 transition-colors",
-                errors.full_name ? "border-red-700" : "border-zinc-800 focus:border-teal-600"
+                "w-full px-4 py-3 bg-canvas border rounded-md text-sm text-ink focus:outline-none placeholder-slate-400 transition-colors",
+                errors.full_name ? "border-red-700" : "border-field-border focus:border-ink"
               )}
               {...field("full_name")}
             />
             {errors.full_name && (
-              <p className="text-xs text-red-400">{errors.full_name.message}</p>
+              <p className="text-xs text-rose-600">{errors.full_name.message}</p>
             )}
           </div>
 
           {/* Email */}
           <div className="space-y-1.5">
-            <label htmlFor="email" className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+            <label htmlFor="email" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
               Email Address
             </label>
             <input
@@ -109,24 +106,24 @@ export default function RegisterPage() {
               autoComplete="email"
               placeholder="name@company.com"
               className={cn(
-                "w-full px-4 py-3 bg-zinc-950 border rounded-xl text-sm text-zinc-200 focus:outline-none placeholder-zinc-600 transition-colors",
-                errors.email ? "border-red-700" : "border-zinc-800 focus:border-teal-600"
+                "w-full px-4 py-3 bg-canvas border rounded-md text-sm text-ink focus:outline-none placeholder-slate-400 transition-colors",
+                errors.email ? "border-red-700" : "border-field-border focus:border-ink"
               )}
               {...field("email")}
             />
             {errors.email && (
-              <p className="text-xs text-red-400">{errors.email.message}</p>
+              <p className="text-xs text-rose-600">{errors.email.message}</p>
             )}
           </div>
 
           {/* Role */}
           <div className="space-y-1.5">
-            <label htmlFor="role" className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+            <label htmlFor="role" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
               Role
             </label>
             <select
               id="role"
-              className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 focus:border-teal-600 rounded-xl text-sm text-zinc-200 focus:outline-none transition-colors"
+              className="w-full px-4 py-3 bg-canvas border border-field-border focus:border-ink rounded-md text-sm text-ink focus:outline-none transition-colors"
               {...field("role")}
             >
               <option value="sales_rep">Sales Representative</option>
@@ -137,7 +134,7 @@ export default function RegisterPage() {
 
           {/* Password */}
           <div className="space-y-1.5">
-            <label htmlFor="password" className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+            <label htmlFor="password" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
               Password
             </label>
             <input
@@ -146,13 +143,13 @@ export default function RegisterPage() {
               autoComplete="new-password"
               placeholder="Min. 8 characters"
               className={cn(
-                "w-full px-4 py-3 bg-zinc-950 border rounded-xl text-sm text-zinc-200 focus:outline-none placeholder-zinc-600 transition-colors",
-                errors.password ? "border-red-700" : "border-zinc-800 focus:border-teal-600"
+                "w-full px-4 py-3 bg-canvas border rounded-md text-sm text-ink focus:outline-none placeholder-slate-400 transition-colors",
+                errors.password ? "border-red-700" : "border-field-border focus:border-ink"
               )}
               {...field("password")}
             />
             {errors.password && (
-              <p className="text-xs text-red-400">{errors.password.message}</p>
+              <p className="text-xs text-rose-600">{errors.password.message}</p>
             )}
           </div>
 
@@ -161,7 +158,7 @@ export default function RegisterPage() {
             id="register-submit"
             type="submit"
             disabled={register.isPending || register.isSuccess}
-            className="w-full py-3.5 bg-teal-500 text-zinc-950 rounded-xl font-bold text-sm hover:bg-teal-400 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-teal-500/10 flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary text-white rounded-xs font-medium text-sm hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"
           >
             {register.isPending ? (
               <>
@@ -174,9 +171,9 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        <div className="text-center text-xs text-zinc-500 font-medium">
+        <div className="text-center text-xs text-slate-500 font-medium">
           Already registered?{" "}
-          <Link href="/auth/login" className="text-teal-400 hover:text-teal-300 font-bold">
+          <Link href="/auth/login" className="text-link hover:underline font-bold">
             Sign In
           </Link>
         </div>

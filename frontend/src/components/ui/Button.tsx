@@ -25,24 +25,25 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const sizeStyles = {
-      sm: "px-3 py-1.5 text-xs font-medium rounded-lg gap-1.5",
-      md: "px-4 py-2 text-sm font-medium rounded-lg gap-2",
-      lg: "px-5 py-2.5 text-sm font-semibold rounded-lg gap-2.5",
+      sm: "px-3 py-1.5 text-xs font-medium rounded-xs gap-1.5",
+      md: "px-4 py-2.5 text-sm font-medium rounded-xs gap-2",
+      lg: "px-4 py-3 text-sm font-medium rounded-xs gap-2.5",
     };
 
+    // One charcoal action colour; secondary is an outlined companion. No coloured CTAs.
     const variantStyles = {
       primary:
-        "bg-blue-600 hover:bg-blue-700 text-white shadow-xs focus:ring-2 focus:ring-blue-500/20 active:bg-blue-800 disabled:bg-blue-300",
+        "bg-primary hover:bg-slate-700 active:bg-slate-700 text-white disabled:bg-canvas-soft disabled:text-slate-400 disabled:border disabled:border-hairline",
       secondary:
-        "bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-xs focus:ring-2 focus:ring-slate-200 active:bg-slate-100 disabled:opacity-50",
+        "bg-transparent hover:bg-ink/8 text-ink border border-ink disabled:bg-canvas-soft disabled:text-slate-400 disabled:border-hairline",
       outline:
-        "bg-transparent hover:bg-slate-100 text-slate-700 border border-slate-200 focus:ring-2 focus:ring-slate-200 disabled:opacity-50",
+        "bg-transparent hover:bg-ink/8 text-ink border border-ink disabled:bg-canvas-soft disabled:text-slate-400 disabled:border-hairline",
       ghost:
-        "bg-transparent hover:bg-slate-100 text-slate-600 hover:text-slate-900 disabled:opacity-50",
+        "bg-ink/0 hover:bg-ink/8 text-ink disabled:text-slate-400",
       danger:
-        "bg-rose-600 hover:bg-rose-700 text-white shadow-xs focus:ring-2 focus:ring-rose-500/20 active:bg-rose-800 disabled:bg-rose-300",
+        "bg-transparent hover:bg-rose-50 text-rose-600 border border-rose-600 disabled:bg-canvas-soft disabled:text-slate-400 disabled:border-hairline",
       success:
-        "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs focus:ring-2 focus:ring-emerald-500/20 active:bg-emerald-800 disabled:bg-emerald-300",
+        "bg-primary hover:bg-slate-700 active:bg-slate-700 text-white disabled:bg-canvas-soft disabled:text-slate-400 disabled:border disabled:border-hairline",
     };
 
     return (
@@ -50,7 +51,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || isLoading}
         className={cn(
-          "inline-flex items-center justify-center transition-all duration-150 cursor-pointer disabled:cursor-not-allowed select-none",
+          "inline-flex items-center justify-center transition-colors duration-150 cursor-pointer disabled:cursor-not-allowed select-none",
           sizeStyles[size],
           variantStyles[variant],
           className

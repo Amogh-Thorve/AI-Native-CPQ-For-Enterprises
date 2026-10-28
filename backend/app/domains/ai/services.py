@@ -70,6 +70,26 @@ class AIService:
             logger.warning("Gemini call failed, using rules fallback: %s", exc)
             return None
 
+    async def _generate_json(self, instruction: str, facts: str) -> Optional[dict]:
+        """Like _generate but requests strict JSON; returns None when unavailable or unparsable."""
+        if not settings.GEMINI_API_KEY:
+            return None
+        try:
+            import json
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            resp = await client.aio.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=f"{instruction}\n\nINPUT:\n{facts}",
+                config=types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json"),
+            )
+            data = json.loads((resp.text or "").strip())
+            return data if isinstance(data, dict) else None
+        except Exception as exc:
+            logger.warning("Gemini JSON call failed, using rules fallback: %s", exc)
+            return None
+
     @staticmethod
     def _can_see_margin(user: User) -> bool:
         perms = {p.name for r in user.roles for p in r.permissions}

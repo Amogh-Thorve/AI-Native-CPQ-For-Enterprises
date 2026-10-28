@@ -15,9 +15,12 @@ import {
   CheckCircle,
   Cloud,
   Copy,
+  Link2,
+  Package,
   XCircle,
 } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
+import { AiQuoteBuilder, DealInsightsCard, RecommendationsCard } from "./ai-panels";
 import {
   Button,
   Card,
@@ -91,6 +94,12 @@ interface Quote {
   tax_amount: string;
   total_amount: string;
   margin_percentage?: string | null;
+  tax_label?: string | null;
+  tax_rate_percent?: string | null;
+  share_token?: string | null;
+  customer_response_name?: string | null;
+  customer_response_note?: string | null;
+  customer_responded_at?: string | null;
   customer?: CustomerSummary | null;
   created_at: string;
   items: QuoteLine[];
@@ -334,7 +343,8 @@ function NewQuote({
       <button onClick={onCancel} className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 cursor-pointer">
         <ArrowLeft size={14} /> Back to quotes
       </button>
-      <PageHeader title="New Quote" description="Choose the customer, then add products on the next screen." />
+      <PageHeader title="New Quote" description="Describe it in plain language, or choose the customer and add products on the next screen." />
+      <AiQuoteBuilder onCreated={onCreated} notify={notify} />
       <Card>
         <CardContent className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2 space-y-2">
@@ -476,6 +486,28 @@ function QuoteDetail({
     onSuccess: setAiSummary,
     onError: fail,
   });
+  const share = useMutation({
+    mutationFn: () => api.post<{ token: string; url: string }>(`/quotes/${id}/share`),
+    onSuccess: async (link) => {
+      refresh();
+      try {
+        await navigator.clipboard.writeText(link.url);
+        notify("Customer link copied to clipboard.");
+      } catch {
+        notify(`Customer link: ${link.url}`);
+      }
+    },
+    onError: fail,
+  });
+  const createOrder = useMutation({
+    mutationFn: () => api.post<{ order_number: string }>(`/orders/from-quote/${id}`),
+    onSuccess: (o) => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      refresh();
+      notify(`Order ${o.order_number} created. Track it under Orders.`);
+    },
+    onError: fail,
+  });
   const syncSf = useMutation({
     mutationFn: () => api.post<{ status: string; error_summary?: string | null }>(`/integrations/salesforce/sync-quote/${id}`),
     onSuccess: (log) => {
@@ -576,6 +608,14 @@ function QuoteDetail({
             {quote.status !== "ACCEPTED" && (
               <Button variant="success" icon={<CheckCircle size={14} />} onClick={() => action.mutate({ path: "accept", label: "Quote marked as accepted." })}>
                 Mark accepted
+              </Button>
+            )}
+            <Button variant="secondary" icon={<Link2 size={14} />} onClick={() => share.mutate()} disabled={share.isPending}>
+              Customer link
+            </Button>
+            {quote.status === "ACCEPTED" && (
+              <Button variant="primary" icon={<Package size={14} />} onClick={() => createOrder.mutate()} disabled={createOrder.isPending}>
+                Create order
               </Button>
             )}
             {sf?.connected && (
@@ -742,6 +782,7 @@ function QuoteDetail({
           </Card>
         </div>
 
+        <div className="space-y-6">
         {/* Totals */}
         <Card>
           <CardHeader>
@@ -750,14 +791,32 @@ function QuoteDetail({
           <CardContent className="space-y-2 text-sm">
             <Row label="Subtotal" value={money(quote.subtotal, quote.currency)} />
             {Number(quote.discount_amount) > 0 && <Row label="Discount" value={`-${money(quote.discount_amount, quote.currency)}`} />}
-            {Number(quote.tax_amount) > 0 && <Row label="Tax" value={money(quote.tax_amount, quote.currency)} />}
+            {Number(quote.tax_amount) > 0 && (
+              <Row label={`${quote.tax_label || "Tax"}${quote.tax_rate_percent ? ` (${Number(quote.tax_rate_percent)}%)` : ""}`} value={money(quote.tax_amount, quote.currency)} />
+            )}
             <div className="border-t border-slate-200 pt-2">
               <Row label="Total" value={money(quote.total_amount, quote.currency)} strong />
             </div>
             {showMargin && <Row label="Blended margin" value={`${Number(quote.margin_percentage).toFixed(1)}%`} />}
             <Row label="Valid until" value={fmtDate(quote.valid_until)} />
+            {quote.customer_response_name && (
+              <div className="border-t border-slate-200 pt-2 text-xs text-slate-600">
+                Customer response by <b>{quote.customer_response_name}</b>
+                {quote.customer_responded_at ? ` · ${new Date(quote.customer_responded_at).toLocaleString()}` : ""}
+                {quote.customer_response_note ? <div className="mt-1 italic">“{quote.customer_response_note}”</div> : null}
+              </div>
+            )}
           </CardContent>
         </Card>
+        <DealInsightsCard quoteId={id} version={`${quote.status}-${quote.total_amount}-${quote.items.length}`} />
+        {isDraft && (
+          <RecommendationsCard
+            customerId={quote.customer_id}
+            currentProductIds={quote.items.map((i) => i.product_id)}
+            onAdd={(productId) => addLine.mutate({ product_id: productId, quantity: 1, discount_percentage: 0 })}
+          />
+        )}
+        </div>
       </div>
 
       <ProductPicker

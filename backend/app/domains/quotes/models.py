@@ -72,6 +72,16 @@ class Quote(Base):
 
     parent_quote_id: Mapped[Optional[int]] = mapped_column(ForeignKey("quotes.id", ondelete="SET NULL"), nullable=True)
 
+    # Tax resolved from the customer address (see tax domain)
+    tax_rate_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
+    tax_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Customer-facing proposal link and the recorded customer response
+    share_token: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    customer_response_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    customer_response_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    customer_responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", lazy="selectin")
     created_by: Mapped["User"] = relationship("User", lazy="selectin")

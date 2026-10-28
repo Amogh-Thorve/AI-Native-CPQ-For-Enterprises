@@ -19,7 +19,9 @@ from backend.app.domains.quotes.models import Quote, QuoteLineItem
 from backend.app.domains.approval.models import ApprovalPolicy, ApprovalRequest
 from backend.app.domains.document.models import QuoteDocument
 from backend.app.domains.email.models import EmailLog
-from backend.app.domains.integrations.models import IntegrationSyncLog, SalesforceToken
+from backend.app.domains.integrations.models import IntegrationSyncLog, SalesforceToken, WebhookConfig
+from backend.app.domains.tax.models import TaxRate
+from backend.app.domains.orders.models import Order, OrderLine
 
 # Alembic Config object, which provides access to values within the .ini file.
 config = context.config

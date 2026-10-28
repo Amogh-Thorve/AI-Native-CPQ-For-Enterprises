@@ -51,11 +51,12 @@ export function PageHeader({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
+            <h1 className="text-4xl font-normal text-ink">{title}</h1>
             {badge}
           </div>
+          <div className="mt-3 h-1 w-10 bg-accent-gold" aria-hidden="true" />
           {description && (
-            <p className="text-sm text-slate-500 mt-1 font-normal">{description}</p>
+            <p className="text-sm text-slate-600 mt-3 font-normal">{description}</p>
           )}
         </div>
 

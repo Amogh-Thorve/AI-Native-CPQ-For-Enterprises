@@ -19,6 +19,9 @@ from backend.app.domains.email import router as email_router
 from backend.app.domains.ai import router as ai_router
 from backend.app.domains.integrations import router as integrations_router
 from backend.app.domains.analytics import router as analytics_router
+from backend.app.domains.tax import router as tax_router
+from backend.app.domains.orders import router as orders_router
+from backend.app.domains.quotes.public_routes import public_router as proposal_public_router, share_router as proposal_share_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -57,6 +60,10 @@ app.include_router(email_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(integrations_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(tax_router, prefix=settings.API_V1_STR)
+app.include_router(orders_router, prefix=settings.API_V1_STR)
+app.include_router(proposal_share_router, prefix=settings.API_V1_STR)
+app.include_router(proposal_public_router, prefix=settings.API_V1_STR)
 
 @app.get("/health", tags=["system-monitoring"])
 def health_check():
