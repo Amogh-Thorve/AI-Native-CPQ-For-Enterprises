@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # gemini: uses GEMINI_API_KEY and GEMINI_MODEL. openai_compatible: any server speaking /chat/completions
     # (Ollama, vLLM, LM Studio), at LLM_BASE_URL with model LLM_MODEL.
     LLM_PROVIDER: str = "none"
+    # Configuration validation backend: "rules" (default, ConfigurationService logic) or "cpsat" (OR-Tools).
+    CONFIG_SOLVER: str = "rules"
     LLM_MODEL: str = ""
     LLM_BASE_URL: str = ""
 
