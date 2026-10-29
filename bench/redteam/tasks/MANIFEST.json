@@ -1,0 +1,13 @@
+{
+  "counts": {
+    "direct": 20,
+    "escalation": 20,
+    "indirect": 20,
+    "injection_stored": 20,
+    "injection_tool": 20,
+    "roleplay": 20
+  },
+  "per_family": 20,
+  "products": 300,
+  "seed": 21
+}

@@ -34,9 +34,13 @@ class OrchestratorResult:
 
 
 class Orchestrator:
-    def __init__(self, provider, executor: ToolExecutor, *, max_steps: int = 8, temperature: float = 0.0, seed: Optional[int] = None):
+    def __init__(
+        self, provider, executor: ToolExecutor, *, max_steps: int = 8, temperature: float = 0.0,
+        seed: Optional[int] = None, system_prompt: str = SYSTEM_PROMPT,
+    ):
         if max_steps < 1:
             raise ValueError("max_steps must be at least 1")
+        self.system_prompt = system_prompt
         self.provider = provider
         self.executor = executor
         self.max_steps = max_steps
@@ -44,7 +48,7 @@ class Orchestrator:
         self.seed = seed
 
     async def run(self, user_message: str, history: Sequence[Message] = ()) -> OrchestratorResult:
-        messages: List[Message] = [Message("system", SYSTEM_PROMPT), *history, Message("user", user_message)]
+        messages: List[Message] = [Message("system", self.system_prompt), *history, Message("user", user_message)]
         tools = self.executor.json_schemas()
         usage = {"input_tokens": 0, "output_tokens": 0, "model_calls": 0}
         model_version = ""

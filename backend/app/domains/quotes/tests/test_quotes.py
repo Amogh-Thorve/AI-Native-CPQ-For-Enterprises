@@ -286,7 +286,9 @@ async def test_quote_builder_full_lifecycle():
             assert Decimal(q_get_data["subtotal"]) == expected_subtotal
             assert Decimal(q_get_data["grand_total"]) == expected_subtotal
             assert Decimal(q_get_data["total_amount"]) == expected_subtotal
-            assert Decimal(q_get_data["margin_percentage"]) > Decimal("0.00")
+            # Sales Representatives lack pricing.margin.view, so margin is masked on REST responses.
+            assert q_get_data["margin_percentage"] is None
+            assert all(i["margin_amount"] is None and i["margin_percentage"] is None for i in q_get_data["items"])
 
             # -------------------------------------------------------------------
             # Test 6: Inactive Product Rejection

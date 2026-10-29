@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.exceptions import EntityNotFoundError, DomainValidationError
+from backend.app.core.config import settings
 from backend.app.domains.configuration.models import (
     ConfigRuleType, ConfigurationSession, Bundle, BundleComponent,
     BundleConfigurationSession, BundleAuditLog, ConfigurationVersion,
@@ -82,7 +83,29 @@ class ConfigurationService:
 
     # --- Validation Core Logic ---
 
+    async def _validate_with_solver(self, request: ValidateConfigurationRequest) -> ValidateConfigurationResponse:
+        """Same request and response as the rules path, computed by the configured solver on a snapshot."""
+        from backend.app.domains.configuration.solver import Invalid, Selection, get_solver
+        from backend.app.domains.configuration.solver.snapshot import product_snapshot
+
+        model = await product_snapshot(self.db, request.product_id)
+        selections = [
+            Selection(group_id=s.group_id, option_ids=tuple(s.option_ids), quantities=s.quantities) for s in request.selections
+        ]
+        result = get_solver(settings.CONFIG_SOLVER).validate(model, selections)
+        conflicts = result.conflicts if isinstance(result, Invalid) else ()
+        return ValidateConfigurationResponse(
+            valid=not conflicts,
+            errors=[
+                ConfigurationErrorDetail(rule_type=c.rule_type, message=c.message, group_id=c.group_id, option_id=c.option_id)
+                for c in conflicts
+            ],
+            warnings=[],
+        )
+
     async def validate_configuration(self, request: ValidateConfigurationRequest) -> ValidateConfigurationResponse:
+        if settings.CONFIG_SOLVER != "rules":
+            return await self._validate_with_solver(request)
         errors: List[ConfigurationErrorDetail] = []
         warnings: List[str] = []
 

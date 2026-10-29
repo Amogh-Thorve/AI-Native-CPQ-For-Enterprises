@@ -1,0 +1,49 @@
+{
+  "catalog_seed": 1234,
+  "counts": {
+    "ambiguity": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "constrained_config": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "multi_turn": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "permission_trap": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "policy_limit": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "pricing_edge": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "revision": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    },
+    "simple_quote": {
+      "dev": 12,
+      "test": 28,
+      "total": 40
+    }
+  },
+  "dev_fraction": 0.3,
+  "per_category": 40,
+  "products": 300,
+  "seed": 7
+}
