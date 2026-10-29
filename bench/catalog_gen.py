@@ -25,7 +25,6 @@ from backend.app.domains.tax.models import TaxRate
 
 PREFIX = "BENCH-"
 SYNTHETIC = "Synthetic CPQ-Bench data."
-BENCH_TENANT = uuid.uuid5(uuid.NAMESPACE_DNS, "cpq-bench")
 BENCH_PASSWORD = "BenchPass123!"
 BENCH_COUNTRY = "Benchland"
 BENCH_TAX_NAME = f"{PREFIX}VAT"
@@ -305,17 +304,22 @@ async def generate(db, n_products: int = 300, seed: int = 1234) -> GenReport:
     if (await db.execute(select(TaxRate).where(TaxRate.name == BENCH_TAX_NAME))).scalars().first() is None:
         db.add(TaxRate(name=BENCH_TAX_NAME, country=BENCH_COUNTRY, region=None, rate_percent=BENCH_TAX_RATE,
                        is_default=False, is_active=True))
-    cust_ids = {
-        n: i for n, i in (await db.execute(
-            select(Customer.customer_number, Customer.id)
-            .where(Customer.tenant_id == BENCH_TENANT, Customer.customer_number.like(f"{PREFIX}%"))
-        )).all()
-    }
+    rep_id = (await db.execute(select(User.id).where(User.email == role_email("Sales Representative")))).scalar_one()
+    # The tool layer scopes a Sales Representative to customers they own in their own tenant.
+    existing_customers = (await db.execute(
+        select(Customer).where(Customer.customer_number.like(f"{PREFIX}%"))
+    )).scalars().all()
+    cust_ids = {}
+    for cust in existing_customers:
+        cust_ids[cust.customer_number] = cust.id
+        if cust.tenant_id != rep_id or cust.owner_id != rep_id:
+            cust.tenant_id = rep_id
+            cust.owner_id = rep_id
     for number, name, country in pl.customers:
         if number in cust_ids:
             continue
         cust = Customer(
-            tenant_id=BENCH_TENANT, customer_number=number, legal_name=name, display_name=name,
+            tenant_id=rep_id, owner_id=rep_id, customer_number=number, legal_name=name, display_name=name,
             customer_type="BUSINESS", status="ACTIVE", currency="USD", notes=SYNTHETIC,
         )
         db.add(cust)

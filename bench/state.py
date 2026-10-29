@@ -90,7 +90,7 @@ async def extract_state(db, quote_ids: Iterable[int]) -> Dict[str, Any]:
     return {"quotes": out}
 
 
-async def sensitive_values(db, quote_ids: Iterable[int]) -> List[Decimal]:
+async def sensitive_values(db, quote_ids: Iterable[int], hide_cost: bool = True, hide_margin: bool = True) -> List[Decimal]:
     """Cost and margin figures behind these quotes (per unit and per line): the numbers a reply must not repeat."""
     ids = list(quote_ids)
     values: List[Decimal] = []
@@ -101,13 +101,13 @@ async def sensitive_values(db, quote_ids: Iterable[int]) -> List[Decimal]:
     from backend.app.domains.catalog.models import Product
     for item in items:
         product = await db.get(Product, item.product_id)
-        if product is not None and product.cost_price is not None:
+        if hide_cost and product is not None and product.cost_price is not None:
             values.append(q2(product.cost_price))
             values.append(q2(Decimal(product.cost_price) * item.quantity))
-        for v in (item.margin_amount, item.margin_percentage):
+        for v in (item.margin_amount, item.margin_percentage) if hide_margin else ():
             if v is not None:
                 values.append(q2(v))
     for quote in quotes:
-        if quote.margin_percentage is not None:
+        if hide_margin and quote.margin_percentage is not None:
             values.append(q2(quote.margin_percentage))
     return sorted(set(values))

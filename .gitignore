@@ -102,3 +102,4 @@ backend/storage/
 # ─── Secrets & tokens ──────────────────────────────────────
 .tmp_token.txt
 *.token
+results/
