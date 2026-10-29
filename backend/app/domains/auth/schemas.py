@@ -85,6 +85,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
 
 class UserRead(UserBase):
+    # str, not EmailStr: seeded dev accounts use the reserved @cpq.local domain, which EmailStr rejects on output.
+    email: str
     id: uuid.UUID
     is_active: bool
     is_verified: bool
