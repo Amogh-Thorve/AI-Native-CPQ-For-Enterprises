@@ -13,6 +13,30 @@ from backend.app.domains.quotes.services import QuoteService
 
 router = APIRouter(prefix="/quotes", tags=["quotes-builder"])
 
+MARGIN_PERMISSION = "pricing.margin.view"
+
+
+def _can_view_margin(user: User) -> bool:
+    return any(p.name == MARGIN_PERMISSION for r in (user.roles or []) for p in (r.permissions or []))
+
+
+def _mask_item(item, show: bool) -> QuoteLineItemRead:
+    out = QuoteLineItemRead.model_validate(item)
+    if not show:
+        out.margin_amount = None
+        out.margin_percentage = None
+    return out
+
+
+def _mask_quote(quote, show: bool) -> QuoteRead:
+    out = QuoteRead.model_validate(quote)
+    if not show:
+        out.margin_percentage = None
+        for it in out.items:
+            it.margin_amount = None
+            it.margin_percentage = None
+    return out
+
 @router.post("/", response_model=QuoteRead, status_code=status.HTTP_201_CREATED)
 async def create_quote(
     schema: QuoteCreate,
@@ -25,7 +49,7 @@ async def create_quote(
     service = QuoteService(db)
     quote = await service.create_quote(creator_id=current_user.id, schema=schema, current_user=current_user)
     await db.commit()
-    return await service.get_quote(quote.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote.id, current_user=current_user), _can_view_margin(current_user))
 
 @router.get("/", response_model=List[QuoteRead])
 async def list_quotes(
@@ -43,7 +67,8 @@ async def list_quotes(
     service = QuoteService(db)
     if await service.expire_overdue_quotes():
         await db.commit()
-    return await service.list_quotes(
+    show = _can_view_margin(current_user)
+    quotes = await service.list_quotes(
         customer_id=customer_id,
         status=status,
         search=search,
@@ -51,6 +76,7 @@ async def list_quotes(
         offset=offset,
         current_user=current_user
     )
+    return [_mask_quote(q, show) for q in quotes]
 
 @router.get("/{quote_id}", response_model=QuoteRead)
 async def get_quote(
@@ -62,7 +88,7 @@ async def get_quote(
     Get detailed breakdown of a quote and all component lines.
     """
     service = QuoteService(db)
-    return await service.get_quote(quote_id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote_id, current_user=current_user), _can_view_margin(current_user))
 
 @router.put("/{quote_id}", response_model=QuoteRead)
 async def update_quote(
@@ -77,7 +103,7 @@ async def update_quote(
     service = QuoteService(db)
     quote = await service.update_quote(quote_id, schema, current_user=current_user)
     await db.commit()
-    return await service.get_quote(quote.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote.id, current_user=current_user), _can_view_margin(current_user))
 
 @router.delete("/{quote_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_quote(
@@ -107,7 +133,7 @@ async def add_quote_item(
     service = QuoteService(db)
     item = await service.add_item(quote_id, schema, current_user=current_user)
     await db.commit()
-    return item
+    return _mask_item(item, _can_view_margin(current_user))
 
 @router.put("/{quote_id}/items/{item_id}", response_model=QuoteLineItemRead)
 async def update_quote_item(
@@ -124,7 +150,7 @@ async def update_quote_item(
     service = QuoteService(db)
     item = await service.update_item(quote_id, item_id, schema, current_user=current_user)
     await db.commit()
-    return item
+    return _mask_item(item, _can_view_margin(current_user))
 
 @router.delete("/{quote_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_quote_item(
@@ -154,7 +180,7 @@ async def submit_quote(
     service = QuoteService(db)
     quote = await service.submit_quote(quote_id, current_user=current_user)
     await db.commit()
-    return await service.get_quote(quote.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote.id, current_user=current_user), _can_view_margin(current_user))
 
 @router.post("/{quote_id}/cancel", response_model=QuoteRead)
 async def cancel_quote(
@@ -168,7 +194,7 @@ async def cancel_quote(
     service = QuoteService(db)
     quote = await service.cancel_quote(quote_id, current_user=current_user)
     await db.commit()
-    return await service.get_quote(quote.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote.id, current_user=current_user), _can_view_margin(current_user))
 
 @router.post("/{quote_id}/revise", response_model=QuoteRead)
 async def revise_quote(
@@ -182,7 +208,7 @@ async def revise_quote(
     service = QuoteService(db)
     revised = await service.revise_quote(quote_id, current_user=current_user)
     await db.commit()
-    return await service.get_quote(revised.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(revised.id, current_user=current_user), _can_view_margin(current_user))
 
 
 @router.post("/{quote_id}/accept", response_model=QuoteRead)
@@ -197,4 +223,4 @@ async def accept_quote(
     service = QuoteService(db)
     quote = await service.accept_quote(quote_id, current_user=current_user)
     await db.commit()
-    return await service.get_quote(quote.id, current_user=current_user)
+    return _mask_quote(await service.get_quote(quote.id, current_user=current_user), _can_view_margin(current_user))
