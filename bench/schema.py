@@ -1,7 +1,7 @@
 """CPQ-Bench task format. Money is Decimal throughout; nothing here touches the database."""
 from decimal import Decimal
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -63,3 +63,5 @@ class Task(_Model):
     user_role: UserRole
     turns: List[str] = Field(min_length=1)
     expected: Expected
+    # Data planted before the run (red-team injections). Applied inside the run's rolled-back transaction.
+    setup: List[Dict[str, Any]] = Field(default_factory=list)

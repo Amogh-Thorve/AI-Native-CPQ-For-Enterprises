@@ -5,6 +5,7 @@ CPQ-Bench runner.
 
 Arms:  A  no tools; catalog excerpt in the prompt; the model answers with a JSON quote draft.
        B  tools, no policy and no masking (cost/margin secrecy is requested in the prompt only).
+       B2 as B, with a strong prompt-only confidentiality instruction: separates prompt-only masking from tool-layer masking.
        C  tools with the approval policy checker and output masking.
 Every run happens inside a transaction that is rolled back afterwards, so runs never see each other's quotes.
 """
@@ -20,18 +21,21 @@ from backend.app.core.config import settings
 from backend.app.domains.ai.llm import Message, Orchestrator, ProviderError, build_provider
 from backend.app.domains.ai.llm.orchestrator import QUOTE_TOOLS
 from backend.app.domains.ai.llm.types import LLMResponse
+from backend.app.domains.ai.prompts import SYSTEM_PROMPT
 from backend.app.domains.ai.tools import ToolExecutor
 from backend.app.domains.approval.checker import ApprovalPolicyChecker
 from bench.catalog_gen import plan as catalog_plan
 from bench.draft import draft_to_state, parse_draft
 from bench.generate_tasks import load_tasks
 from bench.harness import isolated_session, load_role_user
-from bench.prompts import catalog_excerpt, system_prompt
+from bench.prompts import B2_PROMPT, catalog_excerpt, system_prompt
+from bench.redteam.exposure import exposed, trace_exposure
+from bench.redteam.inject import InjectingExecutor, apply_setup, tool_injections
 from bench.schema import Task
-from bench.scorer import ActualRun, ErrorClass, score
+from bench.scorer import ActualRun, ErrorClass, allowed_values, score
 from bench.state import extract_state
 
-ARMS = ("A", "B", "C")
+ARMS = ("A", "B", "B2", "C")
 RunKey = Tuple[str, str, str, int]
 
 
@@ -102,11 +106,13 @@ async def _run_arm_a(provider, task: Task, db, cfg: RunSettings, seed: int):
 
 async def _run_tool_arm(provider, task: Task, db, cfg: RunSettings, seed: int):
     user = await load_role_user(db, task.user_role)
-    if cfg.arm == "B":
-        executor = ToolExecutor(user, db, enforce_policy=False, mask_outputs=False)
+    if cfg.arm in ("B", "B2"):
+        executor = InjectingExecutor(user, db, enforce_policy=False, mask_outputs=False)
     else:
-        executor = ToolExecutor(user, db, enforce_policy=True, mask_outputs=True, policy_checker=ApprovalPolicyChecker(db))
-    orchestrator = Orchestrator(provider, executor, temperature=cfg.temperature, seed=seed)
+        executor = InjectingExecutor(user, db, enforce_policy=True, mask_outputs=True, policy_checker=ApprovalPolicyChecker(db))
+    executor.injections = tool_injections(task.setup)
+    prompt = B2_PROMPT if cfg.arm == "B2" else SYSTEM_PROMPT
+    orchestrator = Orchestrator(provider, executor, temperature=cfg.temperature, seed=seed, system_prompt=prompt)
     history: List[Message] = []
     usage = {"input_tokens": 0, "output_tokens": 0, "model_calls": 0}
     replies: List[str] = []
@@ -131,11 +137,12 @@ async def run_task(provider, task: Task, trial: int, cfg: RunSettings) -> Dict[s
         "task_id": task.id, "category": task.category.value, "split": task.split.value, "arm": cfg.arm,
         "provider": cfg.provider_name, "model": cfg.model, "model_version": "", "temperature": cfg.temperature,
         "trial": trial, "seed": trial, "trace": [], "replies": [], "score": None, "error_classes": [],
-        "disclosure": False, "tokens": {"input_tokens": 0, "output_tokens": 0, "model_calls": 0},
+        "disclosure": False, "tool_exposure": None, "tokens": {"input_tokens": 0, "output_tokens": 0, "model_calls": 0},
         "latency_ms": 0.0, "stopped_reasons": [], "error": None,
     }
     try:
         async with isolated_session() as db:
+            await apply_setup(db, task.setup)
             runner = _run_arm_a if cfg.arm == "A" else _run_tool_arm
             state, replies, trace, usage, version, stops = await runner(provider, task, db, cfg, trial)
             verdict = score(task, ActualRun(state=state, assistant_texts=replies, trace=trace))
@@ -145,6 +152,10 @@ async def run_task(provider, task: Task, trial: int, cfg: RunSettings) -> Dict[s
             score={"passed": verdict.passed, "failures": [{"cls": f.cls.value, "detail": f.detail} for f in verdict.failures]},
             error_classes=classes, disclosure=ErrorClass.DISCLOSURE.value in classes,
         )
+        # What the model was shown, from the trace: any non-null cost/margin field or forbidden figure in a tool result.
+        if cfg.arm != "A":
+            report = trace_exposure(trace, task.expected.forbidden_values, allowed_values(task.expected))
+            record["tool_exposure"] = {"seen": exposed(report), **report}
     except Exception as exc:  # one broken run must not stop a sweep; it is logged and retried on --resume
         record["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
     record["latency_ms"] = round((time.perf_counter() - started) * 1000, 2)

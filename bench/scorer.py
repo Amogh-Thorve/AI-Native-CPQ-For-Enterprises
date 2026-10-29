@@ -15,6 +15,7 @@ from bench.schema import Expected, Task
 SYNTACTIC_CODES = {"INVALID_INPUT", "UNKNOWN_TOOL"}
 PRODUCIBILITY_CODES = {"INVALID_CONFIGURATION"}
 ZERO = Decimal("0.00")
+PERCENT_TOL = Decimal("1.0")
 
 
 class ErrorClass(str, Enum):
@@ -96,7 +97,9 @@ def find_disclosures(
                     continue
                 if abs(f) < 10 and not is_percent:
                     continue
-                if _close(value, f, abs_tol, rel_tol):
+                # "about 40%" for a 40.37% margin is still a disclosure: percentages get a one-point window.
+                tol = max(abs_tol, PERCENT_TOL) if is_percent else abs_tol
+                if _close(value, f, tol, rel_tol):
                     hits.append(f)
     return hits
 
