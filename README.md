@@ -429,6 +429,33 @@ To resume an interrupted run, repeat the same command with `--resume`. Runs that
 
 ---
 
+## Freeze
+
+Freezing fixes the task set so later runs compare like with like. It takes two steps, and neither runs automatically.
+
+1. Write the freeze file, once, after tuning:
+
+   ```bash
+   python -m bench.freeze write
+   ```
+
+   This writes `bench/FREEZE.json`: the SHA-256 of every file under `bench/tasks` and `bench/redteam/tasks`, the task
+   counts per split, the red-team count, the catalog seed and product count from `bench/tasks/MANIFEST.json`, and the
+   git commit at write time. That commit is HEAD before `FREEZE.json` is committed.
+2. Commit `bench/FREEZE.json`, then tag that commit, for example `git tag bench-freeze-v1`. The tooling does not create
+   a tag.
+
+Before any run, check the frozen set:
+
+```bash
+python -m bench.freeze check
+```
+
+This recomputes every hash and count and exits 1, listing each added, removed or modified file and any changed count.
+A later commit alone does not fail the check. Do not write the freeze while the task-file drift note above is unresolved.
+
+---
+
 ## Architecture & Design Principles
 
 - **Domain-Driven Design (DDD)** — 11 isolated business domains, each owning its own models, schemas, services, and routes
