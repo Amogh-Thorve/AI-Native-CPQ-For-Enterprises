@@ -6,21 +6,30 @@ test or probe that reproduces it.
 
 ## Divergences
 
-### F1. Repeated option id is reported as a single-select violation (rules only)
+### F1. Repeated option id is reported as a single-select violation (rules only). FIXED
 
-- Rules: `services.py` (`validate_configuration`, step 1 and step 2) appends the option id to the group's chosen list
-  once per occurrence in `option_ids`, then checks `len(chosen) > 1` for `SINGLE_SELECT`.
-- Solver: the solver works on the set of picked options, so a repeated id is one pick.
+- Status: fixed. The solver's reading is the one kept: a repeated option id is one pick.
+- Original rules behaviour: `services.py` (`validate_configuration`, step 1) appended the option id to the group's
+  chosen list once per occurrence in `option_ids`, then step 2 checked `len(chosen) > 1` for `SINGLE_SELECT`.
+- Original solver behaviour: the solver works on the set of picked options, so a repeated id is one pick.
 - Minimal example: a `SINGLE_SELECT` group "Plan" with options Basic (id 1), Standard (id 2), and the selection
   `option_ids = [1, 1]`.
-  - Rules: `SINGLE_SELECT` error "Configuration group 'Plan' only allows a single selection."
-  - Solver: valid.
-- Which side is right: arguably the solver. The user picked one option twice, not two options. The rules validator
-  reports a false error. Not fixed here.
-- Evidence: `test_duplicate_option_id_divergence_is_recorded` (strict xfail). In a probe of 1,440 random
-  configurations with repeated ids, 496 disagreed. A second probe (different seed, same models) of 1,440 runs found 525 disagreements, and every one
-  was a `SINGLE_SELECT` that only the rules validator reported.
-- Also true at the API: the service rejects a legitimate single pick sent twice. Not exercised by the API tests.
+  - Before the fix, rules: `SINGLE_SELECT` error "Configuration group 'Plan' only allows a single selection."
+  - Before the fix, solver: valid.
+- Which side was right: the solver. The user picked one option twice, not two options.
+- What changed: the chosen-list append in `services.py` (`validate_configuration`) and in the rules port
+  (`solver/rules_validator.py`, `validate_selections`) now skips an id already in that group's chosen list. The first
+  occurrence keeps its place, so order is preserved. Nothing else changed: quantity checks still run for every
+  occurrence, as they did before and as the solver does, and the other rules are untouched.
+- Evidence before the fix: `test_duplicate_option_id_divergence_is_recorded` was a strict xfail. In a probe of 1,440
+  random configurations with repeated ids, 496 disagreed. A second probe (different seed, same models) of 1,440 runs
+  found 525 disagreements, and every one was a `SINGLE_SELECT` that only the rules validator reported.
+- Evidence after the fix: the same test name, `test_duplicate_option_id_divergence_is_recorded`, is now a normal test
+  that asserts both implementations accept `[1, 1]` and still report the real two-plan conflict for `[1, 1, 2]`. A
+  probe of 1,440 random runs on bench plan models, with one id repeated in every selection (1,387 runs had a repeated
+  id), found 0 disagreements between the rules port and the solver.
+- The service change has the same shape as the port change, but no test exercises the service path for repeated ids.
+  The DB-backed equivalence test needs the dev database, so it was not run for this fix.
 
 ## Checked, no divergence
 
@@ -66,5 +75,5 @@ python -m pytest backend/app/domains/configuration -q -W ignore
 python -m bench.solver_bench --sizes 100 1000 5000 --selections 200
 ```
 
-The divergence in F1 is the strict xfail in `backend/app/domains/configuration/tests/test_solver.py`. If the rules
-validator is fixed, the xfail will start passing and pytest will fail until the marker is removed. That is intended.
+F1 (repeated option ids) is covered by `test_duplicate_option_id_divergence_is_recorded` in
+`backend/app/domains/configuration/tests/test_solver.py`. It is a normal passing test; the former strict xfail was removed.

@@ -2,8 +2,8 @@
 Pure port of ConfigurationService.validate_configuration and validate_bundle (services.py).
 
 Behaviour is copied on purpose, including quirks, so the port can be compared with both the service and the solver.
-Quirks kept as they are: duplicate option ids count twice for SINGLE_SELECT; MULTI_SELECT groups are never capped;
-REQUIRES is checked from the source side only. Do not fix them here. Record them in docs/solver-findings.md.
+Quirks kept as they are: MULTI_SELECT groups are never capped; REQUIRES is checked from the source side only.
+Do not fix them here. Record them in docs/solver-findings.md. A repeated option id is one pick (F1, now fixed).
 """
 from typing import List, Optional, Sequence, Set
 
@@ -38,7 +38,9 @@ def validate_selections(model: ProductModel, selections: Sequence[Selection]) ->
                 continue
 
             selected_option_ids.add(opt_id)
-            selected_by_group_id[group.id].append(opt_id)
+            # A repeated id is one pick (F1 in docs/solver-findings.md). Keep the first occurrence's place.
+            if opt_id not in selected_by_group_id[group.id]:
+                selected_by_group_id[group.id].append(opt_id)
 
             qty = 1
             if sel.quantities and str(opt_id) in sel.quantities:
