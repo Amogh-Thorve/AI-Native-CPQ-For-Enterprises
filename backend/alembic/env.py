@@ -1,9 +1,14 @@
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+# `python -m alembic` runs from backend/, so the repo root must be on sys.path before importing backend.*.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # 1. Import declarative base from core
 from backend.app.core.database import Base
