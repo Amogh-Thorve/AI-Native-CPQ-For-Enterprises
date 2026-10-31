@@ -151,7 +151,9 @@ class ConfigurationService:
                     continue
 
                 selected_option_ids.add(opt_id)
-                selected_by_group_id[group.id].append(opt_id)
+                # A repeated id is one pick (F1 in docs/solver-findings.md). Keep the first occurrence's place.
+                if opt_id not in selected_by_group_id[group.id]:
+                    selected_by_group_id[group.id].append(opt_id)
 
                 # Fetch quantity bounds
                 qty = 1

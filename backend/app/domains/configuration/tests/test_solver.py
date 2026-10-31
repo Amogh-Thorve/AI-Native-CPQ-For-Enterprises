@@ -1,7 +1,7 @@
 """
 Solver tests: hand-built models, bundles, random equivalence on bench models, and equivalence with the real service
-on bench products in the dev database. The known rules-versus-solver difference is an xfail, not a silent fix; see
-docs/solver-findings.md.
+on bench products in the dev database. The former rules-versus-solver difference (F1, repeated option ids) is fixed
+and covered by a normal test; see docs/solver-findings.md.
 """
 import asyncio
 import random
@@ -109,10 +109,15 @@ def test_unknown_implementation_name_is_rejected():
     assert get_solver("rules").name == "rules" and get_solver("cpsat").name == "cpsat"
 
 
-@pytest.mark.xfail(strict=True, reason="Known divergence: duplicate option ids. See docs/solver-findings.md F1.")
 def test_duplicate_option_id_divergence_is_recorded():
-    selections = [sel(10, 1, 1)]
-    assert isinstance(RULES.validate(spine(), selections), Invalid) == isinstance(CPSAT.validate(spine(), selections), Invalid)
+    """F1, fixed: a repeated option id is one pick, so both implementations accept it."""
+    assert isinstance(RULES.validate(spine(), [sel(10, 1, 1)]), Valid)
+    assert isinstance(CPSAT.validate(spine(), [sel(10, 1, 1)]), Valid)
+    # A repeated id does not hide a real second pick: 1 and 2 are still two plans. Premium also needs Support, which
+    # is not selected here, so REQUIRES fires as well.
+    expected = Counter({"SINGLE_SELECT": 1, "REQUIRES": 1})
+    assert rule_types(RULES.validate(spine(), [sel(10, 1, 1, 2)])) == expected
+    assert rule_types(CPSAT.validate(spine(), [sel(10, 1, 1, 2)])) == expected
 
 
 # ─── Bundles ────────────────────────────────────────────────────────────────
