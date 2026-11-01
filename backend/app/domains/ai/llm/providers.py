@@ -69,7 +69,10 @@ class GeminiProvider:
         for part in parts:
             if part.function_call:
                 fc = part.function_call
-                calls.append(ToolCall(id=fc.id or uuid.uuid4().hex, name=fc.name, args=dict(fc.args or {})))
+                calls.append(ToolCall(
+                    id=fc.id or uuid.uuid4().hex, name=fc.name, args=dict(fc.args or {}),
+                    thought_signature=part.thought_signature,
+                ))
             elif part.text:
                 text_parts.append(part.text)
         usage = resp.usage_metadata
@@ -97,7 +100,10 @@ class GeminiProvider:
                     parts.append(types.Part(text=m.content))
                 for tc in m.tool_calls:
                     names[tc.id] = tc.name
-                    parts.append(types.Part(function_call=types.FunctionCall(id=tc.id, name=tc.name, args=tc.args)))
+                    parts.append(types.Part(
+                        function_call=types.FunctionCall(id=tc.id, name=tc.name, args=tc.args),
+                        thought_signature=tc.thought_signature,
+                    ))
                 out.append(types.Content(role="model", parts=parts or [types.Part(text="")]))
             elif m.role == "tool":
                 name = m.name or names.get(m.tool_call_id or "", "tool")
