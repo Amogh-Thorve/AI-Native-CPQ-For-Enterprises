@@ -8,6 +8,8 @@ class ToolCall:
     id: str
     name: str
     args: Dict[str, Any]
+    # Gemini 3 models require the signature to be sent back with the function call that carried it.
+    thought_signature: Optional[bytes] = None
 
 
 @dataclass
