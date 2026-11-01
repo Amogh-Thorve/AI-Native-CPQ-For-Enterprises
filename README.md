@@ -369,10 +369,10 @@ cd frontend && npm run build
   (`bench/tasks/MANIFEST.json`).
 - Tasks: task seed 7, 40 per category, 30% dev. Eight categories, 320 tasks (96 dev, 224 test), in `bench/tasks/`.
 - Red-team attacks: seed 21, 20 per family, six families, 120 attacks, in `bench/redteam/tasks/`.
-- Known drift: the committed task files predate the `setup` field, which the current generator writes as `"setup": []`
-  on every task. Running `python -m bench.generate_tasks` today therefore rewrites all 320 lines, with no other change.
-  The red-team generator output is identical to the committed files. Decide whether to commit the rewrite before
-  freezing (see [Freeze](#freeze)).
+- Regeneration is reproducible: running the generators again with the same seeds gives byte-identical files, whatever
+  the Python hash seed. Task draws sort their method sets (`bench/templates.py`, `Ctx`), which an earlier version did
+  not, so the committed files were regenerated after that fix.
+- Every task carries `"setup"`, which is `[]` for the main tasks. The red-team files already had it.
 
 ### Commands
 

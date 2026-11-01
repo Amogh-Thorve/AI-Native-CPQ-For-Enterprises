@@ -40,11 +40,14 @@ class Ctx:
             self.by_method.setdefault(key, []).append(p)
         self.configurable = [p for p in self.plan.products if p.groups]
 
+    # Methods are sorted before the pool is built. Iterating a set follows the per-process hash seed, which changed
+    # which product a given RNG draw picked, so the same seed gave different tasks in different runs.
     def product(self, methods) -> ProductPlan:
-        pool = [p for m in methods for p in self.by_method.get(m, [])]
+        pool = [p for m in sorted(methods) for p in self.by_method.get(m, [])]
         return self.rng.choice(pool)
 
     def cheap_product(self, methods, ceiling: Decimal = Decimal("3000")) -> ProductPlan:
+        methods = sorted(methods)
         pool = [p for m in methods for p in self.by_method.get(m, []) if p.base_price <= ceiling]
         return self.rng.choice(pool or [p for m in methods for p in self.by_method.get(m, [])])
 
